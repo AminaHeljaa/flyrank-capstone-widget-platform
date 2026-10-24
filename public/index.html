@@ -1,0 +1,76 @@
+
+<!DOCTYPE html>
+<html lang="bs">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Capstone — Demo widget</title>
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #f3f6fb;
+      color: #17243b;
+    }
+
+    header {
+      background: #142b4a;
+      color: white;
+      padding: 28px 20px;
+      text-align: center;
+    }
+
+    header a {
+      color: #cfe3fb;
+      font-weight: bold;
+      text-decoration: none;
+    }
+
+    header a:hover { color: white; text-decoration: underline; }
+
+    main {
+      width: min(700px, 92%);
+      margin: 40px auto;
+    }
+
+    .panel {
+      background: white;
+      padding: 28px;
+      border-radius: 16px;
+      box-shadow: 0 8px 28px #17243b12;
+    }
+
+    h2 { margin-top: 0; }
+
+    code {
+      background: #eef3fa;
+      padding: 3px 6px;
+      border-radius: 5px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Capstone — Demo widget</h1>
+    <p>Demo platforma za prikupljanje prijava</p>
+    <a href="/dashboard.html">Dashboard vlasnika</a>
+  </header>
+
+  <main>
+    <section class="panel">
+      <h2>Kontaktiraj nas</h2>
+      <p>Popuni obrazac i provjeri kako se prijava sprema u bazu.</p>
+      <div id="widget-root">
+        <script src="/widget/v1.js" data-widget-key="demo-widget" defer></script>
+      </div>
+    </section>
+
+    <p>
+      Demo ključ widgeta: <code>demo-widget</code>
+    </p>
+  </main>
+
+</body>
+</html>

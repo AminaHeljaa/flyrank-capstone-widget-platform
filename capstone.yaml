@@ -1,0 +1,44 @@
+project:
+  name: flyrank-capstone-widget-platform
+  description: Embeddable Widget & Lead-Capture Platform
+  version: 1.0.0
+  author: Your Name
+  license: MIT
+
+database:
+  type: postgresql
+  connection:
+    host: localhost
+    port: 5432
+    user: your_username
+    password: your_password
+    database: flyrank_db
+
+server:
+  port: 3000
+  cors: true
+  rateLimiting:
+    enabled: true
+    windowMs: 15 * 60 * 1000
+    max: 100
+
+authentication:
+  jwtSecret: your_jwt_secret
+  tokenExpiration: 1h
+
+geolocation:
+  providerA: your_geolocation_provider_A
+  providerB: your_geolocation_provider_B
+
+logging:
+  level: info
+  file: logs/app.log
+
+features:
+  widgetCRUD: true
+  embedSnippetGeneration: true
+  publicSubmissionEndpoint: true
+  spamPrevention: true
+  geolocationFallback: true
+  dashboardAPI: true
+  backgroundJobs: true

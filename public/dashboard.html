@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="bs">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#142b4a">
+  <title>Dashboard — FlyRank Widget Platform</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", sans-serif;
+      color: #17243b;
+      background: #f3f6fb;
+      font-synthesis: none;
+      text-rendering: optimizeLegibility;
+    }
+
+    * { box-sizing: border-box; }
+
+    body { margin: 0; min-width: 320px; }
+
+    button, input, select, textarea { font: inherit; }
+    button { cursor: pointer; }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 16px max(24px, calc((100% - 1180px) / 2));
+      color: #fff;
+      background: #142b4a;
+    }
+
+    .brand { margin: 0; font-size: 1.05rem; letter-spacing: .01em; }
+    .brand span { color: #9cc9ff; }
+    .topbar nav { display: flex; align-items: center; gap: 18px; }
+    .topbar a { color: #dbe9f8; text-decoration: none; }
+    .topbar a:hover { color: #fff; text-decoration: underline; }
+    .account { display: flex; align-items: center; gap: 12px; }
+    .account-email { max-width: 250px; overflow-wrap: anywhere; color: #dbe9f8; }
+
+    main { width: min(1180px, calc(100% - 40px)); margin: 38px auto 64px; }
+    .page-heading {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 24px;
+    }
+
+    h1 { margin: 0 0 6px; font-size: clamp(1.7rem, 4vw, 2.25rem); }
+    .muted { color: #63718a; }
+    .page-heading p { margin: 0; }
+
+    .grid { display: grid; gap: 20px; }
+    .stats-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 22px; }
+    .two-column { grid-template-columns: minmax(0, 1.4fr) minmax(280px, .8fr); }
+
+    .card {
+      min-width: 0;
+      padding: 22px;
+      border: 1px solid #e6ebf2;
+      border-radius: 16px;
+      background: #fff;
+      box-shadow: 0 8px 28px #17243b0b;
+    }
+
+    .stat-label { margin: 0 0 10px; color: #63718a; font-size: .92rem; }
+    .stat-value { margin: 0; color: #142b4a; font-size: 2rem; font-weight: 750; }
+    .section-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+
+    h2 { margin: 0; font-size: 1.1rem; }
+    h3 { margin: 0 0 6px; font-size: 1rem; }
+    .section-heading p { margin: 5px 0 0; font-size: .9rem; }
+
+    .form-row { display: flex; gap: 10px; }
+    .field { display: grid; gap: 7px; margin-bottom: 14px; }
+    .field label { color: #34445e; font-size: .91rem; font-weight: 600; }
+    .field input, .field select {
+      width: 100%;
+      min-height: 44px;
+      padding: 10px 12px;
+      border: 1px solid #cad4e2;
+      border-radius: 8px;
+      color: #17243b;
+      background: #fff;
+    }
+
+    .field input:focus, .field select:focus, button:focus-visible, a:focus-visible {
+      outline: 3px solid #8fc2ff;
+      outline-offset: 2px;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 42px;
+      padding: 9px 15px;
+      border: 1px solid #1769aa;
+      border-radius: 8px;
+      color: #fff;
+      background: #1769aa;
+      font-weight: 650;
+    }
+
+    .button:hover { background: #10588f; }
+    .button.secondary { color: #142b4a; background: #fff; border-color: #cad4e2; }
+    .button.secondary:hover { background: #f4f7fb; }
+    .button.small { min-height: 36px; padding: 7px 11px; font-size: .88rem; }
+    .button:disabled { cursor: wait; opacity: .62; }
+
+    .status { min-height: 1.4em; margin: 12px 0 0; color: #63718a; }
+    .status.error { color: #a52626; }
+    .status.success { color: #176b43; }
+    [hidden] { display: none !important; }
+
+    .auth-wrap { max-width: 480px; margin: 7vh auto; }
+    .auth-tabs { display: flex; gap: 8px; margin: 20px 0; }
+    .auth-tabs button { flex: 1; }
+    .auth-note { font-size: .9rem; line-height: 1.5; }
+
+    .table-wrap { width: 100%; overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; text-align: left; }
+    th, td { padding: 13px 12px; border-bottom: 1px solid #e8edf4; vertical-align: top; }
+    th { color: #63718a; font-size: .81rem; font-weight: 700; white-space: nowrap; }
+    td { font-size: .91rem; overflow-wrap: anywhere; }
+    td.message { min-width: 210px; white-space: pre-wrap; }
+    td.date { min-width: 155px; white-space: nowrap; color: #63718a; }
+    .empty-state { padding: 28px 12px; text-align: center; color: #63718a; }
+
+    .widget-list { display: grid; gap: 14px; }
+    .widget-item { padding: 16px; border: 1px solid #e6ebf2; border-radius: 12px; }
+    .widget-meta { margin: 8px 0 12px; color: #63718a; font-size: .88rem; }
+    .widget-key { display: inline-block; max-width: 100%; overflow-wrap: anywhere; }
+    .embed-code {
+      display: block;
+      width: 100%;
+      min-height: 76px;
+      margin: 10px 0;
+      padding: 10px;
+      resize: vertical;
+      border: 1px solid #dbe3ed;
+      border-radius: 8px;
+      color: #243650;
+      background: #f5f8fc;
+      font: .78rem/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+    }
+
+    .widget-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .notice { margin: 12px 0 0; color: #63718a; font-size: .85rem; line-height: 1.5; }
+    .loader { padding: 20px 0; color: #63718a; }
+
+    @media (max-width: 760px) {
+      .topbar { align-items: flex-start; flex-wrap: wrap; padding: 16px 20px; }
+      .topbar nav { order: 3; width: 100%; }
+      .two-column { grid-template-columns: 1fr; }
+      main { width: min(100% - 28px, 620px); margin-top: 26px; }
+      .page-heading { align-items: flex-start; flex-direction: column; }
+    }
+
+    @media (max-width: 480px) {
+      .stats-grid { gap: 12px; }
+      .card { padding: 17px; }
+      .stat-value { font-size: 1.65rem; }
+      .account-email { max-width: 150px; font-size: .84rem; }
+      .form-row { align-items: stretch; flex-direction: column; }
+      .section-heading { align-items: flex-start; flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <p class="brand">FlyRank <span>Widget Platform</span></p>
+    <nav aria-label="Glavna navigacija">
+      <a href="/dashboard.html">Dashboard</a>
+      <a href="/">Demo obrazac</a>
+    </nav>
+    <div class="account" id="account-bar" hidden>
+      <span class="account-email" id="account-email"></span>
+      <button class="button secondary small" id="logout-button" type="button">
+        Odjava
+      </button>
+    </div>
+  </header>
+
+  <main>
+    <section class="auth-wrap card" id="auth-panel" hidden>
+      <h1>Vaš dashboard</h1>
+      <p class="muted">Prijavite se ili napravite račun za upravljanje widgetima.</p>
+      <div class="auth-tabs" role="tablist" aria-label="Prijava ili registracija">
+        <button class="button" id="login-tab" type="button" role="tab"
+          aria-selected="true">Prijava</button>
+        <button class="button secondary" id="register-tab" type="button" role="tab"
+          aria-selected="false">Registracija</button>
+      </div>
+      <form id="auth-form">
+        <div class="field">
+          <label for="auth-email">Email adresa</label>
+          <input id="auth-email" name="email" type="email" autocomplete="email"
+            maxlength="254" required>
+        </div>
+        <div class="field">
+          <label for="auth-password">Lozinka</label>
+          <input id="auth-password" name="password" type="password"
+            autocomplete="current-password" minlength="12" maxlength="72" required>
+        </div>
+        <button class="button" id="auth-submit" type="submit">Prijavi se</button>
+        <p class="status" id="auth-status" role="status" aria-live="polite"></p>
+      </form>
+      <p class="muted auth-note">
+        Lozinka za registraciju mora imati najmanje 12 znakova.
+      </p>
+    </section>
+
+    <section id="dashboard-panel" hidden>
+      <div class="page-heading">
+        <div>
+          <h1>Pregled platforme</h1>
+          <p class="muted">Upravljajte widgetima i pratite pristigle prijave.</p>
+        </div>
+        <button class="button secondary" id="refresh-button" type="button">
+          Osvježi podatke
+        </button>
+      </div>
+
+      <p class="status" id="dashboard-status" role="status" aria-live="polite"></p>
+
+      <section class="grid stats-grid" aria-label="Statistika">
+        <article class="card">
+          <p class="stat-label">Vaši widgeti</p>
+          <p class="stat-value" id="widget-count">—</p>
+        </article>
+        <article class="card">
+          <p class="stat-label">Ukupno prijava</p>
+          <p class="stat-value" id="submission-count">—</p>
+        </article>
+        <article class="card">
+          <p class="stat-label">Geolokacija na čekanju</p>
+          <p class="stat-value" id="jobs-pending">—</p>
+        </article>
+        <article class="card">
+          <p class="stat-label">Geolokacija u obradi</p>
+          <p class="stat-value" id="jobs-processing">—</p>
+        </article>
+        <article class="card">
+          <p class="stat-label">Geolokacija završena</p>
+          <p class="stat-value" id="jobs-completed">—</p>
+        </article>
+        <article class="card">
+          <p class="stat-label">Geolokacija neuspješna</p>
+          <p class="stat-value" id="jobs-failed">—</p>
+        </article>
+      </section>
+
+      <section class="grid two-column">
+        <article class="card">
+          <div class="section-heading">
+            <div>
+              <h2>Prijave</h2>
+              <p class="muted" id="submission-caption">Najnovije prijave vaših widgeta</p>
+            </div>
+            <div class="field" style="min-width: 190px; margin: 0">
+              <label for="widget-filter">Prikaži prijave</label>
+              <select id="widget-filter" disabled>
+                <option value="">Svi widgeti</option>
+              </select>
+            </div>
+          </div>
+          <div id="submission-loading" class="loader" hidden aria-live="polite">
+            Učitavanje prijava...
+          </div>
+          <div id="submission-empty" class="empty-state" hidden>
+            Još nema prijava za odabrane widgete.
+          </div>
+          <div class="table-wrap" id="submission-table-wrap" hidden>
+            <table>
+              <thead>
+                <tr>
+                  <th>Ime</th>
+                  <th>Email</th>
+                  <th>Poruka</th>
+                  <th>Widget</th>
+                  <th>Datum slanja</th>
+                </tr>
+              </thead>
+              <tbody id="submission-rows"></tbody>
+            </table>
+          </div>
+          <p class="notice" id="submission-notice" hidden>
+            Prikazano je najviše 100 najnovijih prijava za odabir.
+          </p>
+        </article>
+
+        <aside class="grid">
+          <section class="card">
+            <div class="section-heading">
+              <div>
+                <h2>Vaši widgeti</h2>
+                <p class="muted">Ključevi i kod za ugradnju.</p>
+              </div>
+            </div>
+            <div id="widget-loading" class="loader" hidden>Učitavanje widgeta...</div>
+            <div id="widget-list" class="widget-list"></div>
+            <div id="widget-empty" class="empty-state" hidden>
+              Još nemate widget. Kreirajte prvi ispod.
+            </div>
+          </section>
+
+          <section class="card">
+            <h2>Kreiraj widget</h2>
+            <p class="muted">Novi widget će biti vezan za vaš račun.</p>
+            <form id="create-widget-form">
+              <div class="field">
+                <label for="widget-name">Naziv widgeta</label>
+                <input id="widget-name" name="name" type="text" minlength="2"
+                  maxlength="100" required>
+              </div>
+              <button class="button" id="create-widget-button" type="submit">
+                Kreiraj widget
+              </button>
+              <p class="status" id="widget-status" role="status" aria-live="polite"></p>
+            </form>
+          </section>
+        </aside>
+      </section>
+    </section>
+  </main>
+
+  <script src="/dashboard.js" defer></script>
+</body>
+</html>
