@@ -54,6 +54,21 @@ test("migracija sačuva postojeće widgete i prijave i dodijeli vlasnika", async
   assert.equal(widgets[0].public_key, "demo-widget");
   assert.equal(widgets[1].public_key, "existing-widget");
   assert.equal(widgets[0].owner_id, widgets[1].owner_id);
+  assert.deepEqual(
+    db.prepare(`
+      SELECT title, description, button_text, color, fields_json,
+             success_message
+      FROM widgets WHERE id = 42
+    `).get(),
+    {
+      title: "",
+      description: "",
+      button_text: "Pošalji prijavu",
+      color: "#4568f5",
+      fields_json: '["name","email","message"]',
+      success_message: "Prijava je uspješno zaprimljena."
+    }
+  );
 
   const systemOwner = db.prepare(`
     SELECT email, password_hash FROM users WHERE id = ?
@@ -95,6 +110,9 @@ test("migracija sačuva postojeće widgete i prijave i dodijeli vlasnika", async
   ));
   assert.ok(db.pragma("index_list(background_jobs)").some(
     (index) => index.name === "idx_background_jobs_lease"
+  ));
+  assert.ok(db.pragma("index_list(background_jobs)").some(
+    (index) => index.name === "idx_background_jobs_webhook_submission"
   ));
 
   const server = app.listen(0);

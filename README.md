@@ -24,6 +24,23 @@ Razvojni režim s automatskim restartom:
 npm run dev
 ```
 
+## Interfejs i ručna provjera
+
+FlyRank koristi zajednički dizajnerski sistem bez frontend frameworka ili novih
+runtime zavisnosti. Početna stranica (`/`) predstavlja proizvod i uključuje
+stvarni demo embed; `/dashboard.html` zadržava prijavu, registraciju, widgete,
+prijave i status background poslova; `/embed-demo.html` demonstrira isti
+versioned widget script na izdvojenoj testnoj stranici. Embed stilovi su
+izolovani u Shadow DOM-u, tako da ne preuzimaju CSS stranice domaćina.
+
+Za brzu browser provjeru pokrenite `npm start`, posjetite `/`, zatim otvorite
+`/dashboard.html` i prijavite se ili registrujte. U dashboardu napravite widget,
+kopirajte njegov embed kod i provjerite prikaz koda, brojke, tabelu/prazno
+stanje i povratnu poruku dugmeta za kopiranje. Otvorite `/embed-demo.html` da
+provjerite vanjski embed primjer. Za testiranje stvarnog cross-origin CORS-a
+poslužite `public/` na drugom originu i dodajte njegov tačan origin u
+`WIDGET_ALLOWED_ORIGINS`; lokalni URL u stranici je samo razvojni primjer.
+
 Aplikacija po zadanim postavkama koristi `widget-platform.db` u korijenu
 projekta. Postojeća baza se ne briše: pri pokretanju se dodaju korisničke i
 sesijske tabele, a postojeći widgeti dobiju sistemskog vlasnika
@@ -59,9 +76,9 @@ widgeta čiji je `owner_id` prijavljeni korisnik.
 | --- | --- | --- |
 | `GET` | `/api/owner/dashboard` | Broj widgeta, ukupan broj vlastitih prijava, widgeti i do 100 najnovijih vlastitih prijava; opcionalni `?widgetId=...` filtrira prijave |
 | `GET` | `/api/owner/widgets` | Vlastiti widgeti |
-| `POST` | `/api/owner/widgets` | Kreiranje: `{ "name": "Moj obrazac" }`; ključ generiše server |
-| `GET` | `/api/owner/widgets/:id` | Pregled vlastitog widgeta |
-| `PUT` / `PATCH` | `/api/owner/widgets/:id` | Izmjena naziva widgeta |
+| `POST` | `/api/owner/widgets` | Kreiranje widgeta i njegovih postavki; ključ generiše server |
+| `GET` | `/api/owner/widgets/:id` | Pregled vlastitog widgeta i postavki |
+| `PUT` / `PATCH` | `/api/owner/widgets/:id` | Izmjena naziva i/ili postavki widgeta |
 | `DELETE` | `/api/owner/widgets/:id` | Brisanje widgeta i njegovih prijava |
 | `GET` | `/api/owner/widgets/:id/submissions` | Do 100 najnovijih vlastitih prijava; podržava `?limit=1..100` |
 | `GET` | `/api/owner/widgets/:id/stats` | Broj prijava vlastitog widgeta |
@@ -73,7 +90,7 @@ i vraća podatke samo vlasniku.
 
 Odgovori vlasničkog dashboarda uključuju lokaciju prijave u polju
 `geolocation` (država, regija, grad, koordinate, provider i status), te zbirne
-brojeve pozadinskih geolokacijskih poslova za widgete trenutnog korisnika.
+brojeve pozadinskih poslova svih tipova za widgete trenutnog korisnika.
 
 Javni demo obrazac ostaje dostupan:
 
@@ -89,12 +106,23 @@ ne omogućava pregled, izmjenu ni brisanje pohranjenih prijava.
 ## Dashboard vlasnika
 
 Otvorite `http://localhost:3000/dashboard.html` i registrujte se ili prijavite.
-Dashboard prikazuje broj vlastitih widgeta i prijava, broj geolokacijskih
-poslova u stanjima pending, processing, completed i failed, tabelu prijava (do
-100 najnovijih, uz filter po widgetu), te javni ključ, datum kreiranja i kod za
-ugradnju svakog vlastitog widgeta. Brojevi poslova se računaju samo za prijave
-widgeta trenutno prijavljenog korisnika. Možete kreirati novi widget; njegov
-ključ generiše server i vlasnik se određuje iz sesije, ne iz zahtjeva klijenta.
+Dashboard prikazuje broj vlastitih widgeta, ukupan broj prijava svih widgeta,
+broj prijava za trenutno odabrani widget i broj redova prikazanih u tabeli.
+Tabela prikazuje do 100 najnovijih prijava uz filter po widgetu, uključujući
+državu/grad kada su dostupni ili status obrade lokacije. Kartice pozadinskih
+poslova prikazuju sve tipove poslova, ne samo geolokaciju, u stanjima pending,
+processing, completed i failed. Dashboard prikazuje i javni ključ, datum
+kreiranja i kod za ugradnju svakog vlastitog widgeta. Dugme **Create Widget** otvara editor s
+internim nazivom, naslovom i opisom forme, tekstom dugmeta, akcentnom bojom,
+izborom polja i porukom uspjeha; pregled se ažurira dok se postavke mijenjaju.
+Kreiranje i uređivanje šalju validirane podatke na vlasničke API rute i trajno
+ih čuvaju u SQLite-u. Lista nudi detalje/uređivanje, brisanje uz potvrdu,
+dugme **Embed / pregled** koje otvara odabrani widget i njegov kopirljivi kod,
+zaseban **Pregled** u novoj kartici i brzo kopiranje embed koda. Vlasništvo se provjerava iz sesije
+na serveru; drugi korisnik za widget dobija `404`. Brojevi poslova se računaju
+samo za prijave widgeta trenutno prijavljenog korisnika. Stariji klijenti i
+dalje mogu kreirati widget slanjem samo `{ "name": "Moj obrazac" }`; server
+primjenjuje kompatibilne podrazumijevane postavke.
 
 Javni ključ služi za prikaz obrasca i slanje prijava, ne za pregled vlasničkih
 podataka. Demo obrazac ostaje na `/` i koristi postojeći `demo-widget`.
@@ -123,10 +151,17 @@ Lokalni primjer:
 ```
 
 Za stvarno objavljivanje zamijenite lokalni URL javnim **HTTPS** URL-om
-servera i postavite pravi javni ključ. Widget dohvaća javnu konfiguraciju s
-`GET /api/widgets/:publicKey` i šalje prijave na
+servera i postavite pravi javni ključ. `data-widget-key` je jedinstveni javni ključ konkretnog sačuvanog widgeta
+(ne ID demo widgeta). Skripta dohvaća samo javne postavke s
+`GET /api/widgets/:publicKey` — naslov, opis, tekst dugmeta, boju, polja i
+poruku uspjeha — i šalje prijave na
 `POST /api/widgets/:publicKey/submissions`. Konfiguracija sadrži samo naziv,
-javni ključ i polja; ona nikad ne izlaže vlasnika, prijave ili tajne.
+javni ključ i javne postavke; ona nikad ne izlaže vlasnika, prijave ili tajne.
+Obrazac koristi samo podržana tekstualna polja (`name`, `email`, `message`)
+koja se generišu DOM API-jem, bez izvršavanja HTML-a iz konfiguracije. Embed
+stilovi su izolovani u Shadow DOM-u. Polja koja nisu odabrana ne prikazuju se;
+njihove vrijednosti se pohranjuju kao prazne vrijednosti radi kompatibilnosti
+postojećeg modela prijave.
 
 Konfiguracija ima kratak cache od 30 sekundi i `must-revalidate`.
 Versioned datoteka `/widget/v1.js` ima
@@ -178,6 +213,9 @@ server nakon izmjene; wildcard `*` nije podržan. CORS preflight dopušta samo
 | `BACKGROUND_JOB_RETRY_BASE_MS` | `1000` | Početno eksponencijalno čekanje |
 | `BACKGROUND_JOB_RETRY_MAX_MS` | `3600000` | Gornja granica čekanja |
 | `BACKGROUND_JOB_LEASE_MS` | `30000` | Lease trajanje za oporavak napuštenih poslova |
+| `SUBMISSION_WEBHOOK_URL` | prazno (isključeno) | HTTPS endpoint za događaj nove prijave; HTTP je dopušten samo za localhost |
+| `SUBMISSION_WEBHOOK_SECRET` | prazno | Obavezan uz webhook URL; HMAC-SHA256 ključ od najmanje 32 bajta |
+| `SUBMISSION_WEBHOOK_TIMEOUT_MS` | `5000` | Timeout za webhook HTTP poziv |
 
 Nije potreban JWT ili hardkodirani session secret: sesijski tokeni se generišu
 kriptografski sigurnim generatorom pri prijavi.
@@ -192,7 +230,7 @@ Testovi koriste privremenu SQLite bazu i ne mijenjaju projektnu bazu.
 Pokrivaju `/health`, registraciju i prijavu, hashiranje lozinke, widget CRUD,
 pristup prijavama, izolaciju korisnika, dashboard API, versioned widget script,
 javnu konfiguraciju, CORS/OPTIONS, validaciju, honeypot, rate limiting i
-geolokacijski fallback.
+geolokacijski fallback, background job retry i webhook side effect.
 
 ## Validacija, spam zaštita i ograničenja zahtjeva
 
@@ -252,6 +290,50 @@ Retry koristi eksponencijalni raspored: `base * 2^(attempts - 1)`, do
 `BACKGROUND_JOB_RETRY_MAX_MS`; nakon najviše
 `BACKGROUND_JOB_MAX_ATTEMPTS` izvršavanja posao prelazi u failed. Posljednja
 greška sadrži samo fiksni kod, ne tekst iz provider odgovora.
+
+### Webhook za nove prijave
+
+Opcionalno postavite `SUBMISSION_WEBHOOK_URL` da biste uključili stvarnu
+sporednu radnju za nove prijave. URL mora biti HTTPS; HTTP je dozvoljen samo za
+`localhost`, `127.0.0.1` ili `::1` u lokalnom razvoju. Endpointom upravlja
+vlasnik servera kroz environment, nikada posjetilac widgeta, pa se URL ne može
+koristiti za slanje proizvoljnih zahtjeva sa javnog API-ja. Tajne se ne stavljaju
+u kod ni u repozitorij. `SUBMISSION_WEBHOOK_SECRET` mora biti postavljen i imati
+najmanje 32 UTF-8 bajta kad je URL konfigurisan; FlyRank tada dodaje
+`X-FlyRank-Signature: sha256=<hex>` koji je
+HMAC-SHA256 nad tačnim JSON tijelom. Primaoc mora provjeriti potpis u
+konstantnom vremenu i koristiti `Idempotency-Key` za deduplikaciju.
+Generišite vlastiti ključ lokalno i unesite ga u `.env` (ne u repozitorij):
+
+```sh
+node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"
+```
+
+Poslije upisa prijave u SQLite, aplikacija samo ubacuje
+`submission_webhook` posao u isti trajni red i vraća HTTP `201` bez čekanja na
+receiver. Posao u redu sadrži samo vezu na prijavu, ne ime, email ili poruku;
+worker ih učitava pri isporuci. Primaoc dobija `submission.created` s
+identifikatorom i vremenom prijave, widget ID-em/nazivom te imenom, emailom i
+porukom prijave. Zato endpoint treba biti pouzdan i ovlašten za prijem ovih
+podataka.
+
+Ne-2xx odgovor, mrežna greška ili timeout prolazi kroz isti ograničeni
+eksponencijalni retry. Konačni neuspjeh označava posao `failed`, briše payload
+i bilježi samo fiksni `WEBHOOK_DELIVERY_FAILED` kod uz upozorenje koje ne sadrži
+lead podatke, URL, potpis ili response body. Enqueue greška također ne
+poništava već sačuvanu prijavu; vraća se uspješan odgovor i ispisuje se samo
+generičko upozorenje, ali taj pojedinačni webhook tada nije automatski
+isporučiv. Red ima jedinstveni partial index po prijavi za webhook tip, a svaki
+pokušaj koristi stabilni idempotency key `flyrank-submission-<id>`. Ovo
+sprečava dupli lokalni posao i omogućava primaocu da deduplicira ponovljenu
+isporuku; tačno-jednom isporuka ne može se garantovati ako receiver ignoriše
+idempotency key.
+
+Kada webhook URL nije konfigurisan, webhook funkcionalnost je isključena i
+posao se ne kreira; aplikacija ne tvrdi da je poruka poslana. `.env.example`
+navodi sve opcionalne postavke. Za lokalni test može se koristiti kontrolisani
+HTTP receiver vezan samo na loopback; automatizovani testovi koriste isključivo
+mockirani `fetch` i ne kontaktiraju internet.
 
 SQLite red je namijenjen lokalnom/persistentnom disku koji podržava SQLite
 lockove; nemojte dijeliti WAL bazu preko nepouzdanog mrežnog fajl sistema.

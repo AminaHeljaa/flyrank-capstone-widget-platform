@@ -2,37 +2,60 @@ project:
   name: flyrank-capstone-widget-platform
   description: Embeddable Widget & Lead-Capture Platform
   version: 1.0.0
-  author: Your Name
   license: MIT
 
+run:
+  command: npm start
+  base_url: http://localhost:3000
+  endpoints:
+    - method: GET
+      path: /health
+      expected_status: 200
+
 database:
-  type: postgresql
-  connection:
-    host: localhost
-    port: 5432
-    user: your_username
-    password: your_password
-    database: flyrank_db
+  type: sqlite
+  path: ${DATABASE_PATH:-widget-platform.db}
 
 server:
   port: 3000
-  cors: true
+  cors:
+    enabled: true
+    policy: exact_origin_allowlist
+    origins_env: WIDGET_ALLOWED_ORIGINS
   rateLimiting:
     enabled: true
-    windowMs: 15 * 60 * 1000
-    max: 100
+    api:
+      windowMs: 900000
+      max: 100
+    publicSubmissions:
+      windowMs_env: WIDGET_SUBMISSION_RATE_WINDOW_MS
+      max_env: WIDGET_SUBMISSION_RATE_LIMIT
 
 authentication:
-  jwtSecret: your_jwt_secret
-  tokenExpiration: 1h
+  type: opaque_server_side_sessions
+  cookie: flyrank_session
+  tokenExpiration: 7d
+  passwordHash: bcrypt
 
 geolocation:
-  providerA: your_geolocation_provider_A
-  providerB: your_geolocation_provider_B
+  providerA: ipwho.is
+  providerB: FreeIPAPI
+  timeoutMs_env: GEOLOCATION_TIMEOUT_MS
+  privateAddresses: skipped
 
-logging:
-  level: info
-  file: logs/app.log
+backgroundJobs:
+  persistence: sqlite
+  maxAttempts_env: BACKGROUND_JOB_MAX_ATTEMPTS
+  retryBaseMs_env: BACKGROUND_JOB_RETRY_BASE_MS
+  retryMaxMs_env: BACKGROUND_JOB_RETRY_MAX_MS
+  leaseMs_env: BACKGROUND_JOB_LEASE_MS
+  pollIntervalMs_env: BACKGROUND_JOB_POLL_INTERVAL_MS
+
+submissionWebhook:
+  enabledBy_env: SUBMISSION_WEBHOOK_URL
+  requiredSigningSecret_env: SUBMISSION_WEBHOOK_SECRET
+  timeoutMs_env: SUBMISSION_WEBHOOK_TIMEOUT_MS
+  retryable: true
 
 features:
   widgetCRUD: true
@@ -42,3 +65,4 @@ features:
   geolocationFallback: true
   dashboardAPI: true
   backgroundJobs: true
+  submissionWebhook: optional

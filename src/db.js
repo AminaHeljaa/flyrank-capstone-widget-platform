@@ -23,7 +23,13 @@ db.exec(`
     name TEXT NOT NULL,
     public_key TEXT NOT NULL UNIQUE,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE
+    owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    button_text TEXT NOT NULL DEFAULT 'Pošalji prijavu',
+    color TEXT NOT NULL DEFAULT '#4568f5',
+    fields_json TEXT NOT NULL DEFAULT '["name","email","message"]',
+    success_message TEXT NOT NULL DEFAULT 'Prijava je uspješno zaprimljena.'
   );
 
   CREATE TABLE IF NOT EXISTS submissions (
@@ -93,6 +99,23 @@ if (!widgetColumns.some((column) => column.name === "owner_id")) {
     ADD COLUMN owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE
   `);
 }
+const widgetSettingsColumns = new Set(
+  db.pragma("table_info(widgets)").map((column) => column.name)
+);
+const widgetSettings = [
+  ["title", "TEXT NOT NULL DEFAULT ''"],
+  ["description", "TEXT NOT NULL DEFAULT ''"],
+  ["button_text", "TEXT NOT NULL DEFAULT 'Pošalji prijavu'"],
+  ["color", "TEXT NOT NULL DEFAULT '#4568f5'"],
+  ["fields_json", `TEXT NOT NULL DEFAULT '["name","email","message"]'`],
+  ["success_message", "TEXT NOT NULL DEFAULT 'Prijava je uspješno zaprimljena.'"]
+];
+
+for (const [name, definition] of widgetSettings) {
+  if (!widgetSettingsColumns.has(name)) {
+    db.exec(`ALTER TABLE widgets ADD COLUMN ${name} ${definition}`);
+  }
+}
 
 const systemOwner = db.prepare(`
   INSERT OR IGNORE INTO users (email, password_hash)
@@ -137,6 +160,10 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_background_jobs_submission
   ON background_jobs(submission_id, status);
+
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_background_jobs_webhook_submission
+  ON background_jobs(submission_id)
+  WHERE type = 'submission_webhook' AND submission_id IS NOT NULL;
 
   CREATE INDEX IF NOT EXISTS idx_sessions_user_id
   ON sessions(user_id);

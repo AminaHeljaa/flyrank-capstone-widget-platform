@@ -34,7 +34,9 @@ transakciji. Idempotentna migracija dodaje nullable geolokacijska polja
 postojećim prijavama; raniji zapisi dobijaju status `not_processed`, bez
 izmjene prijave ili ponovnog kreiranja tabela. IP adresa se čuva privremeno
 samo u JSON payload-u aktivnog geolokacijskog posla i briše se u terminalnom
-stanju.
+stanju. Webhook poslovi sadrže samo vezu na prijavu, ne kopiju kontaktnih
+podataka; djelimični unique index dozvoljava najviše jedan webhook posao po
+prijavi.
 
 ## API
 
@@ -72,6 +74,12 @@ izmjenu postojećih podataka.
 - Geolokacija se izvršava tek nakon trajnog upisa prijave. Neuspjeh providera
   ne utiče na uspješan odgovor klijentu. Samo javne IP adrese idu prema
   providerima; ne šalju se podaci prijave i IP se ne loguje.
+- Opcionalni webhook se enqueue-a nakon trajnog upisa prijave; HTTP request ne
+  čeka receiver. Endpoint dolazi samo iz environment konfiguracije, zahtijeva
+  HTTPS (osim loopback HTTP-a za razvoj), odbija redirecte i koristi timeout.
+  Tajni ključ HMAC-SHA256 potpisuje JSON body; stabilni
+  `Idempotency-Key` podržava deduplikaciju kod primaoca. Tajni ključ je
+  obavezan kad je webhook endpoint konfigurisan.
 - SQLite red je trajan. Preuzimanje je atomsko uz processing token; lease
   heartbeat i periodičan oporavak vraćaju napuštene poslove. Retry je
   eksponencijalan, ograničen brojem pokušaja i maksimalnim čekanjem.
@@ -118,7 +126,11 @@ ne postavlja `trust proxy`; deployment iza proxy-ja treba svjesno definisati
 pouzdane proxy adrese/CIDR-ove prije prosljeđivanja klijentskog IP-a.
 
 Dashboard prikazuje najviše 100 najnovijih prijava po trenutnom prikazu. Ukupan
-broj prijava računa se zasebno i nije ograničen na tabelu.
+broj prijava vlasnika ostaje odvojen od broja prijava za izabrani widget i
+stvarnog broja redova u tabeli. U tabeli se prikazuju država, regija i grad iz
+postojećeg `geolocation` objekta kada su dostupni; statusi `not_processed`,
+`skipped` i `unavailable` dobijaju odgovarajuću tekstualnu poruku. Kartice
+pozadinskih poslova opisuju sve tipove poslova u redu, ne samo geolokacijske.
 
 ## Background jobs
 
@@ -143,6 +155,21 @@ konačnog neuspjeha `last_error` je fiksni kod, payload IP se briše i upozorenj
 sadrži samo tip posla, interni job ID i broj pokušaja. Posao koji je processing
 pri restartu se ponovo preuzima kada istekne lease; ako je već potrošio sve
 pokušaje, označava se failed.
+
+Isti worker obrađuje `submission_webhook` poslove, učitavajući submission i
+widget sadržaj iz SQLite-a tek pri izvršavanju. Ne-2xx, mrežna greška i timeout
+su retryable; nakon maksimalnog broja pokušaja posao postaje failed, a log
+sadrži samo tip posla, interni ID i broj pokušaja. Enqueue webhooka je izvan
+transakcije prijave: ako red nije dostupan, prijava ostaje sačuvana i API vraća
+uspjeh, ali taj webhook nije automatski ponovljen. Bez
+`SUBMISSION_WEBHOOK_URL` radnja je isključena. Isporuka je at-least-once;
+receiver treba deduplicirati `Idempotency-Key`, jer se tačno-jednom vanjski
+side effect ne može garantovati.
+
+Webhook tijelo sadrži kontaktne podatke potrebne primaocu. URL i HMAC ključ su
+operativna environment konfiguracija, ne widget postavke; ne
+uključuju se u logove ili klijentske odgovore. Konfiguracija primaoca mora biti
+pouzdana, koristiti HTTPS i imati odgovarajuću kontrolu pristupa i retenciju.
 
 ## Geolokacija
 

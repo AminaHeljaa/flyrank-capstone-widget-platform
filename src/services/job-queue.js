@@ -1,6 +1,7 @@
 const { randomUUID } = require("node:crypto");
 
 const GEOLOCATION_JOB_TYPE = "geolocate_submission";
+const SUBMISSION_WEBHOOK_JOB_TYPE = "submission_webhook";
 const JOB_STATUSES = ["pending", "processing", "completed", "failed"];
 
 class JobQueue {
@@ -31,6 +32,29 @@ class JobQueue {
       this.now()
     );
     return Number(result.lastInsertRowid);
+  }
+
+  enqueueSubmissionWebhook({ submissionId }) {
+    if (!Number.isSafeInteger(submissionId) || submissionId < 1) {
+      throw new TypeError("A valid submission ID is required.");
+    }
+
+    const result = this.db.prepare(`
+      INSERT OR IGNORE INTO background_jobs (
+        type, payload_json, submission_id, next_attempt_at
+      )
+      VALUES (?, '{}', ?, ?)
+    `).run(SUBMISSION_WEBHOOK_JOB_TYPE, submissionId, this.now());
+    if (result.changes === 1) return Number(result.lastInsertRowid);
+
+    const existing = this.db.prepare(`
+      SELECT id FROM background_jobs
+      WHERE type = ? AND submission_id = ?
+    `).get(SUBMISSION_WEBHOOK_JOB_TYPE, submissionId);
+    if (!existing) {
+      throw new Error("Submission webhook job could not be queued.");
+    }
+    return existing.id;
   }
 
   claimNext() {
@@ -102,6 +126,20 @@ class JobQueue {
     });
 
     return complete();
+  }
+
+  complete(job) {
+    return this.db.prepare(`
+      UPDATE background_jobs
+      SET status = 'completed', payload_json = '{}',
+          completed_at = ?, locked_at = NULL, processing_token = NULL,
+          last_error = NULL
+      WHERE id = ? AND status = 'processing' AND processing_token = ?
+    `).run(
+      new Date(this.now()).toISOString(),
+      job.id,
+      job.processing_token
+    ).changes === 1;
   }
 
   failAttempt(job, errorCode) {
@@ -201,12 +239,16 @@ function positiveInteger(value, fallback) {
 }
 
 function safeErrorCode(value) {
-  return value === "GEOLOCATION_UNAVAILABLE"
+  return [
+    "GEOLOCATION_UNAVAILABLE",
+    "WEBHOOK_DELIVERY_FAILED"
+  ].includes(value)
     ? value
     : "JOB_PROCESSING_FAILED";
 }
 
 module.exports = {
   GEOLOCATION_JOB_TYPE,
+  SUBMISSION_WEBHOOK_JOB_TYPE,
   JobQueue
 };

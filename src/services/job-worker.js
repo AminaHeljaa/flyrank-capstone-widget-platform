@@ -1,9 +1,13 @@
-const { GEOLOCATION_JOB_TYPE } = require("./job-queue");
+const {
+  GEOLOCATION_JOB_TYPE,
+  SUBMISSION_WEBHOOK_JOB_TYPE
+} = require("./job-queue");
 
 class JobWorker {
   constructor(options) {
     this.queue = options.queue;
     this.geolocate = options.geolocate;
+    this.deliverWebhook = options.deliverWebhook;
     this.logger = options.logger || console;
     this.pollIntervalMs = positiveInteger(options.pollIntervalMs, 1000);
     this.leaseHeartbeatMs = Math.max(
@@ -36,15 +40,21 @@ class JobWorker {
     if (typeof heartbeat.unref === "function") heartbeat.unref();
 
     try {
+      if (job.type === SUBMISSION_WEBHOOK_JOB_TYPE) {
+        if (typeof this.deliverWebhook !== "function") {
+          throw new Error("WEBHOOK_DELIVERY_FAILED");
+        }
+        await this.deliverWebhook(job);
+        this.queue.complete(job);
+        return;
+      }
+
       if (job.type !== GEOLOCATION_JOB_TYPE) {
         throw new Error("UNSUPPORTED_JOB_TYPE");
       }
 
       const payload = JSON.parse(job.payload_json);
-      if (typeof payload.ip !== "string") {
-        throw new Error("INVALID_JOB_PAYLOAD");
-      }
-
+      if (typeof payload.ip !== "string") throw new Error("INVALID_JOB_PAYLOAD");
       const location = await this.geolocate(payload.ip);
       if (!location || location.status === "unavailable") {
         throw new Error("GEOLOCATION_UNAVAILABLE");
@@ -55,9 +65,11 @@ class JobWorker {
 
       this.queue.completeGeolocation(job, location);
     } catch (error) {
-      const errorCode = error?.message === "GEOLOCATION_UNAVAILABLE"
-        ? "GEOLOCATION_UNAVAILABLE"
-        : "JOB_PROCESSING_FAILED";
+      const errorCode = job.type === SUBMISSION_WEBHOOK_JOB_TYPE
+        ? "WEBHOOK_DELIVERY_FAILED"
+        : error?.message === "GEOLOCATION_UNAVAILABLE"
+          ? "GEOLOCATION_UNAVAILABLE"
+          : "JOB_PROCESSING_FAILED";
       const result = this.queue.failAttempt(job, errorCode);
       if (result.updated && result.failedPermanently) {
         this.logger.warn(

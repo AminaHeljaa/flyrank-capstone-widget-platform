@@ -74,7 +74,12 @@ test("public widget configuration is minimal, cache-limited and CORS allowlisted
   assert.deepEqual(await response.json(), {
     name: "Public widget",
     publicKey: widget.publicKey,
-    fields: ["name", "email", "message"]
+    title: "Public widget",
+    description: "",
+    buttonText: "Send",
+    color: "#3158d4",
+    fields: ["name", "email", "message"],
+    successMessage: "Your message has been received."
   });
 
   const missing = await fetch(`${baseUrl}/api/widgets/does-not-exist`, {
@@ -95,14 +100,18 @@ test("script tag receives versioned JavaScript with immutable cache headers", as
 
   const source = await response.text();
   assert.match(source, /data-widget-key/);
+  assert.match(source, /Loading form/);
+  assert.match(source, /Email address/);
   assert.doesNotMatch(source, /\beval\s*\(/);
   assert.doesNotMatch(source, /\.innerHTML\b/);
 
   const demoPage = await fetch(`${baseUrl}/embed-demo.html`);
   assert.equal(demoPage.status, 200);
   const html = await demoPage.text();
-  assert.match(html, /src="http:\/\/localhost:3000\/widget\/v1\.js"/);
-  assert.match(html, /data-widget-key="demo-widget"/);
+  assert.match(html, /\.get\("widgetKey"\) \|\| "demo-widget"/);
+  assert.match(html, /\.get\("widgetServer"\)/);
+  assert.match(html, /new URL\("\/widget\/v1\.js", widgetServer\)\.href/);
+  assert.match(html, /widget-key-hint"\)\.textContent = widgetKey/);
 
   const homePage = await fetch(`${baseUrl}/`);
   assert.equal(homePage.status, 200);
@@ -111,6 +120,101 @@ test("script tag receives versioned JavaScript with immutable cache headers", as
     homeHtml,
     /<div id="widget-root">\s*<script src="\/widget\/v1\.js" data-widget-key="demo-widget" defer><\/script>/
   );
+});
+
+test("dashboard offers the selected widget preview and its matching embed code", async () => {
+  const dashboardResponse = await fetch(`${baseUrl}/dashboard.html`);
+  assert.equal(dashboardResponse.status, 200);
+  const dashboardHtml = await dashboardResponse.text();
+  assert.match(dashboardHtml, /<html lang="en">/);
+  assert.match(dashboardHtml, /Your lead workspace/);
+  assert.match(dashboardHtml, /id="embed-dialog"/);
+  assert.match(dashboardHtml, /id="embed-preview-frame"/);
+  assert.match(dashboardHtml, /id="copy-embed-dialog-code"/);
+
+  const dashboardScriptResponse = await fetch(`${baseUrl}/dashboard.js`);
+  assert.equal(dashboardScriptResponse.status, 200);
+  const dashboardScript = await dashboardScriptResponse.text();
+  assert.match(dashboardScript, /createElement\("button", "button small", "Embed"\)/);
+  assert.match(dashboardScript, /Latest submissions for your widgets/);
+  assert.match(dashboardScript, /embedPreviewUrl\(widget\.publicKey\)/);
+  assert.match(dashboardScript, /embedCode\(widget\.publicKey\)/);
+  assert.match(dashboardScript, /data-widget-key="\$\{publicKey\}"/);
+});
+
+test("saved widget settings are returned publicly and submissions use its configured fields", async () => {
+  const owner = await register("widget-settings-owner@example.com");
+  const create = await fetch(`${baseUrl}/api/owner/widgets`, {
+    method: "POST",
+    headers: {
+      Cookie: `flyrank_session=${owner.token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      name: "Campaign widget",
+      title: "Talk to our team",
+      description: "We will reply soon.",
+      buttonText: "Contact us",
+      color: "#7355dd",
+      fields: ["name", "email"],
+      successMessage: "Thanks, we got your note!"
+    })
+  });
+  assert.equal(create.status, 201);
+  const { widget } = await create.json();
+  assert.equal(
+    db.prepare("SELECT owner_id FROM widgets WHERE id = ?").get(widget.id).owner_id,
+    owner.user.id
+  );
+  assert.deepEqual(
+    {
+      title: widget.title,
+      description: widget.description,
+      buttonText: widget.buttonText,
+      color: widget.color,
+      fields: widget.fields,
+      successMessage: widget.successMessage
+    },
+    {
+      title: "Talk to our team",
+      description: "We will reply soon.",
+      buttonText: "Contact us",
+      color: "#7355dd",
+      fields: ["name", "email"],
+      successMessage: "Thanks, we got your note!"
+    }
+  );
+
+  const config = await fetch(`${baseUrl}/api/widgets/${widget.publicKey}`);
+  const publicConfig = await config.json();
+  assert.equal(config.status, 200);
+  assert.equal(publicConfig.title, "Talk to our team");
+  assert.equal(publicConfig.buttonText, "Contact us");
+  assert.equal(publicConfig.color, "#7355dd");
+  assert.equal(publicConfig.ownerId, undefined);
+
+  const submission = await fetch(
+    `${baseUrl}/api/widgets/${widget.publicKey}/submissions`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Widget lead",
+        email: "widget-lead@example.com"
+      })
+    }
+  );
+  assert.equal(submission.status, 201);
+  const saved = db.prepare(`
+    SELECT widget_id, name, email, message
+    FROM submissions WHERE id = ?
+  `).get((await submission.json()).submissionId);
+  assert.deepEqual(saved, {
+    widget_id: widget.id,
+    name: "Widget lead",
+    email: "widget-lead@example.com",
+    message: ""
+  });
 });
 
 test("OPTIONS preflight is allowed for configured public endpoints only", async () => {
@@ -264,4 +368,69 @@ test("public key permits config and submission only, never private widget data",
     (await fetch(`${baseUrl}/api/widgets/${widget.publicKey}/submissions`)).status,
     404
   );
+});
+
+test("submission queues the webhook after saving and survives enqueue failure", async () => {
+  const originalEnabled = app.locals.submissionWebhookEnabled;
+  const originalEnqueue = app.locals.enqueueSubmissionWebhook;
+  const originalWarn = console.warn;
+  const warnings = [];
+  app.locals.submissionWebhookEnabled = true;
+
+  try {
+    const response = await fetch(
+      `${baseUrl}/api/widgets/demo-widget/submissions`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Webhook route lead",
+          email: "webhook-route@example.com",
+          message: "Saved before background delivery."
+        })
+      }
+    );
+    assert.equal(response.status, 201);
+    const { submissionId } = await response.json();
+    assert.deepEqual(
+      db.prepare(`
+        SELECT type, status, payload_json
+        FROM background_jobs
+        WHERE submission_id = ? AND type = 'submission_webhook'
+      `).get(submissionId),
+      {
+        type: "submission_webhook",
+        status: "pending",
+        payload_json: "{}"
+      }
+    );
+
+    app.locals.enqueueSubmissionWebhook = () => {
+      throw new Error("private lead details must not be logged");
+    };
+    console.warn = (message) => warnings.push(message);
+    const queueFailure = await fetch(
+      `${baseUrl}/api/widgets/demo-widget/submissions`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Saved despite queue outage",
+          email: "queue-outage@example.com"
+        })
+      }
+    );
+    assert.equal(queueFailure.status, 201);
+    const failedQueueLead = await queueFailure.json();
+    assert.equal(db.prepare(`
+      SELECT COUNT(*) AS count FROM submissions WHERE id = ?
+    `).get(failedQueueLead.submissionId).count, 1);
+    assert.equal(warnings.length, 1);
+    assert.equal(warnings[0].includes("queue-outage@example.com"), false);
+    assert.equal(warnings[0].includes("private lead details"), false);
+  } finally {
+    app.locals.submissionWebhookEnabled = originalEnabled;
+    app.locals.enqueueSubmissionWebhook = originalEnqueue;
+    console.warn = originalWarn;
+  }
 });

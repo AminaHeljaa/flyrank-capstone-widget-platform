@@ -101,8 +101,7 @@ Završna provjera nakon implementacije: `npm test` prolazi sa 13 testova,
   proxy ponašanje.
 
 Završna provjera geolokacijske faze: `npm test` — svih 19 testova prolazi;
-`node --check` prolazi za svih pet izmijenjenih JavaScript fajlova. `git status`
-nije dostupan jer radni direktorij nema `.git` metapodatke.
+`node --check` prolazi za svih pet izmijenjenih JavaScript fajlova.
 
 ## Faza: background jobs, retries i upozorenja
 
@@ -127,6 +126,59 @@ nije dostupan jer radni direktorij nema `.git` metapodatke.
   neuspjeh i upozorenje, restart recovery, duple workere, enqueue failure,
   očuvanje prijave, tenant statistiku i migraciju.
 
-Završna provjera: `npm test` — 25 testova prolazi, 0 pada; `node --check`
-prolazi za sve izmijenjene JavaScript fajlove. `git status` nije dostupan jer
-workspace nema `.git` direktorij.
+Završna provjera te faze: `npm test` — 25 testova prolazi, 0 pada;
+`node --check` prolazi za izmijenjene JavaScript fajlove.
+
+## PDF usalignavanje i webhook sporedna radnja
+
+- Pregledani su capstone PDF, aktuelni API/DB/worker, testovi i projektna
+  dokumentacija. PDF traži da neuspjeh potvrde emailom ili webhookom ne smije
+  spriječiti trajno čuvanje prijave, te opisuje `capstone.yaml` kao manifest za
+  pokretanje aplikacije i probe endpointa.
+- Dodan je konfigurabilni `submission_webhook` tip u postojeći SQLite red.
+  Prijava se prvo čuva, a webhook se enqueue-a poslije upisa; enqueue greška
+  ostavlja prijavu sačuvanu i vraća normalan HTTP uspjeh.
+- Dodan je HTTPS-only (uz loopback HTTP za lokalni razvoj) webhook adapter s
+  timeoutom, redirect zabranom, obaveznim HMAC-SHA256 potpisom i stabilnim
+  `Idempotency-Key`. Ne-2xx, timeout i mrežne greške koriste postojeći
+  eksponencijalni retry. Nakon konačnog neuspjeha log se svodi na tip posla,
+  interni ID i broj pokušaja.
+- Webhook payload se sastavlja iz SQLite prijave samo u workeru; SQLite red
+  ne pohranjuje ime, email ili poruku u webhook job payload-u. Jedinstveni
+  partial index i idempotency key sprečavaju lokalne duple poslove i
+  omogućavaju primaocu deduplikaciju ponovljenih pokušaja. Bez endpointa nema
+  lažne potvrde niti webhook posla.
+- `capstone.yaml` sada navodi stvarni `npm start`/`/health` probe, SQLite,
+  bcrypt i server-side opaque sesije, stvarne geolokacijske providere,
+  background job postavke i opcionalni webhook; uklonjeni su PostgreSQL/JWT
+  i credential placeholderi.
+- Ažurirani su README, DESIGN, BUILDLOG, EVIDENCE i `.env.example`.
+  `.gitignore` je pregledan: `.env`, `.env.*` (uz izuzetak `.env.example`) i
+  SQLite fajlovi su već ignorisani, pa nije bilo potrebe mijenjati ga.
+- Automatizovani testovi mockiraju webhook HTTP i koriste privremenu bazu.
+  Početna provjera prije izmjena: `npm test` — 27/27 prolaznih. Nakon izmjena,
+  fokusirani testovi `node --test test/background-jobs.test.js
+  test/widget-embed.test.js test/migration.test.js` — 16/16 prolaznih.
+  Završni `npm test` — 32/32 prolazna; `node --check` je prošao za sve
+  izmijenjene JS fajlove, `git diff --check` nije prijavio greške, a `npm start`
+  na privremenoj bazi vratio je HTTP 200 za `/health`. Vanjski webhook nije
+  kontaktiran. SHA-256, veličine i vremena izmjene `widget-platform.db`,
+  `-wal` i `-shm` ostali su isti prije i poslije provjera.
+
+## Dashboard lokacija i precizniji brojevi
+
+- Tabela prijava sada prikazuje `country`, `region`, `city` i `status` iz
+  postojećeg API `geolocation` objekta. Uspješna lokacija prikazuje dostupne
+  dijelove; ostali statusi imaju jasne tekstualne poruke.
+- Statistika jasno odvaja ukupan broj prijava svih widgeta, broj za trenutni
+  filter i broj stvarno prikazanih redova (najviše 100).
+- Kartice background jobs sada opisuju sve vrste poslova, jer backend broji
+  sve poslove vezane za prijave, a ne samo geolokaciju.
+- Test dashboarda sada provjerava lokacijska polja i ukupan/filtriran broj.
+  `npm test`: 32/32 prolazna. `node --check` za izmijenjene JavaScript fajlove
+  i `git diff --check` prošli su.
+- Browser smoke test na privremenoj bazi: widget je kreiran kroz dashboard,
+  embed konfiguracija učitana, prijava poslana i potvrđena, a nakon reload-a
+  prijava i brojevi prikazani. Za loopback IP geolokacija je ispravno
+  preskočena. Nije uveden browser test runner jer projekat nema postojeću
+  Playwright/Puppeteer infrastrukturu.

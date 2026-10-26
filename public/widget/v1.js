@@ -19,62 +19,109 @@
     }
   }
 
+  const shadowRoot = root.shadowRoot || root.attachShadow({ mode: "open" });
+  const widget = document.createElement("div");
+  widget.className = "flyrank-widget-card";
+  shadowRoot.append(widget);
+
   const style = document.createElement("style");
   style.textContent = `
-    .flyrank-widget {
-      color: #17243b;
-      font: 16px/1.5 Arial, sans-serif;
+    :host {
+      display: block;
+      width: 100%;
+      color: #17223b;
+      font: 15px/1.55 "DM Sans", "Segoe UI", Arial, sans-serif;
     }
-    .flyrank-widget form {
+    .flyrank-widget-card {
+      box-sizing: border-box;
       display: grid;
-      gap: 14px;
-      max-width: 520px;
+      gap: 16px;
+      width: 100%;
+      max-width: 460px;
+      padding: 23px;
+      border: 1px solid #e4e8f1;
+      border-radius: 14px;
+      background: #fff;
+      box-shadow: 0 8px 24px rgb(18 31 55 / 7%);
+      --flyrank-accent: #3158d4;
     }
-    .flyrank-widget label {
+    h3 {
+      margin: 0;
+      color: #17223b;
+      font: 800 1.2rem/1.25 "Manrope", "Segoe UI", Arial, sans-serif;
+      letter-spacing: -.035em;
+    }
+    [data-flyrank-description] {
+      margin: -8px 0 0;
+      color: #74809a;
+      font-size: .9rem;
+    }
+    form { display: grid; gap: 13px; }
+    label {
       display: grid;
       gap: 6px;
+      color: #44516b;
+      font-size: .85rem;
+      font-weight: 650;
     }
-    .flyrank-widget input,
-    .flyrank-widget textarea {
+    input, textarea {
       box-sizing: border-box;
       width: 100%;
-      padding: 11px 12px;
-      border: 1px solid #ccd5e2;
-      border-radius: 8px;
-      color: inherit;
+      min-height: 44px;
+      padding: 10px 12px;
+      border: 1px solid #dce1ec;
+      border-radius: 9px;
+      color: #17223b;
       background: #fff;
       font: inherit;
+      transition: border-color .18s ease, box-shadow .18s ease;
     }
-    .flyrank-widget button {
-      justify-self: start;
-      padding: 11px 16px;
+    textarea { min-height: 106px; resize: vertical; }
+    input:focus, textarea:focus {
+      border-color: #6d88de;
+      outline: 0;
+      box-shadow: 0 0 0 3px rgb(49 88 212 / 12%);
+    }
+    button {
+      display: inline-flex;
+      min-height: 45px;
+      align-items: center;
+      justify-content: center;
+      padding: 10px 16px;
       border: 0;
-      border-radius: 8px;
+      border-radius: 10px;
       color: #fff;
-      background: #1769aa;
+      background: var(--flyrank-accent);
+      box-shadow: none;
       font: inherit;
       font-weight: 700;
       cursor: pointer;
+      transition: transform .18s ease, box-shadow .18s ease;
     }
-    .flyrank-widget button:disabled {
-      cursor: wait;
-      opacity: .65;
+    button:hover:not(:disabled) { filter: brightness(.94); }
+    button:focus-visible { outline: 3px solid #9e8bff; outline-offset: 3px; }
+    button:disabled { cursor: wait; opacity: .65; }
+    [data-flyrank-status] { min-height: 1.3em; margin: -4px 0 0; color: #68748d; font-size: .86rem; }
+    [data-flyrank-error] { color: #b43b4e; }
+    [data-flyrank-success] { color: #187650; }
+    [data-flyrank-honeypot] {
+      position: absolute !important;
+      width: 1px !important;
+      height: 1px !important;
+      padding: 0 !important;
+      overflow: hidden !important;
+      clip: rect(0, 0, 0, 0) !important;
+      white-space: nowrap !important;
+      clip-path: inset(50%) !important;
     }
-    .flyrank-widget [data-flyrank-status] {
-      margin: 10px 0 0;
+    @media (max-width: 480px) {
+      .flyrank-widget-card { padding: 18px; border-radius: 15px; }
     }
-    .flyrank-widget [data-flyrank-error] {
-      color: #a52626;
-    }
-    .flyrank-widget [data-flyrank-honeypot] {
-      position: absolute;
-      left: -10000px;
-      width: 1px;
-      height: 1px;
-      overflow: hidden;
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { transition-duration: .01ms !important; }
     }
   `;
-  document.head.append(style);
+  shadowRoot.append(style);
 
   const status = document.createElement("p");
   status.setAttribute("data-flyrank-status", "");
@@ -82,13 +129,13 @@
   status.setAttribute("aria-live", "polite");
 
   function showError(message) {
-    root.replaceChildren(status);
+    widget.replaceChildren(status);
     status.textContent = message;
     status.setAttribute("data-flyrank-error", "");
   }
 
   if (!publicKey) {
-    showError("Widget nije konfigurisan: nedostaje javni ključ.");
+    showError("This widget is not configured: its public key is missing.");
     return;
   }
 
@@ -114,8 +161,8 @@
   }
 
   async function loadConfiguration() {
-    status.textContent = "Učitavanje obrasca...";
-    root.replaceChildren(status);
+    status.textContent = "Loading form...";
+    widget.replaceChildren(status);
 
     let response;
     try {
@@ -124,14 +171,14 @@
         { headers: { Accept: "application/json" } }
       );
     } catch {
-      showError("Obrazac nije moguće učitati. Provjerite mrežnu vezu i CORS postavke.");
+      showError("The form could not be loaded. Check your connection and CORS settings.");
       return;
     }
 
     if (!response.ok) {
       showError(response.status === 404
-        ? "Ovaj obrazac nije dostupan."
-        : "Obrazac trenutno nije moguće učitati.");
+        ? "This form is unavailable."
+        : "The form could not be loaded right now.");
       return;
     }
 
@@ -139,7 +186,7 @@
     try {
       configuration = await response.json();
     } catch {
-      showError("Server je vratio neispravnu konfiguraciju obrasca.");
+      showError("The server returned an invalid form configuration.");
       return;
     }
 
@@ -147,23 +194,35 @@
       !configuration
       || configuration.publicKey !== publicKey
       || !Array.isArray(configuration.fields)
-      || !configuration.fields.includes("name")
-      || !configuration.fields.includes("email")
-      || !configuration.fields.includes("message")
+      || configuration.fields.length === 0
+      || configuration.fields.some(
+        (field) => !["name", "email", "message"].includes(field)
+      )
+      || typeof configuration.color !== "string"
+      || !/^#[0-9a-fA-F]{6}$/.test(configuration.color)
     ) {
-      showError("Konfiguracija obrasca nije ispravna.");
+      showError("The form configuration is invalid.");
       return;
     }
 
     const heading = document.createElement("h3");
-    heading.textContent = typeof configuration.name === "string"
-      ? configuration.name
-      : "Kontaktni obrazac";
+    heading.textContent = typeof configuration.title === "string"
+      ? configuration.title
+      : "Contact form";
 
+    widget.style.setProperty("--flyrank-accent", configuration.color);
     const form = document.createElement("form");
-    addField(form, "Ime i prezime", "name", "text");
-    addField(form, "Email adresa", "email", "email");
-    addField(form, "Poruka", "message", "textarea");
+    for (const field of configuration.fields) {
+      if (field === "name") addField(form, "Name", "name", "text");
+      if (field === "email") addField(form, "Email address", "email", "email");
+      if (field === "message") addField(form, "Message", "message", "textarea");
+    }
+
+    const description = document.createElement("p");
+    description.setAttribute("data-flyrank-description", "");
+    description.textContent = typeof configuration.description === "string"
+      ? configuration.description
+      : "";
 
     const honeypotLabel = document.createElement("label");
     honeypotLabel.setAttribute("data-flyrank-honeypot", "");
@@ -178,7 +237,9 @@
 
     const button = document.createElement("button");
     button.type = "submit";
-    button.textContent = "Pošalji prijavu";
+    button.textContent = typeof configuration.buttonText === "string"
+      ? configuration.buttonText
+      : "Send";
     form.append(button);
 
     let submitting = false;
@@ -189,7 +250,8 @@
       submitting = true;
       button.disabled = true;
       status.removeAttribute("data-flyrank-error");
-      status.textContent = "Slanje prijave...";
+      status.removeAttribute("data-flyrank-success");
+      status.textContent = "Sending...";
 
       const data = Object.fromEntries(new FormData(form).entries());
       try {
@@ -208,34 +270,37 @@
 
         if (!submissionResponse.ok) {
           if (submissionResponse.status === 429) {
-            throw new Error("Previše pokušaja slanja. Pokušajte ponovo kasnije.");
+            throw new Error("Too many attempts. Please try again later.");
           }
           if (submissionResponse.status === 413) {
-            throw new Error("Obrazac je prevelik. Skratite poruku i pokušajte ponovo.");
+            throw new Error("The form is too large. Shorten your message and try again.");
           }
           if (submissionResponse.status === 400) {
             throw new Error(
-              "Provjerite ime, email adresu i dužinu poruke pa pokušajte ponovo."
+              "Check your name, email address, and message length, then try again."
             );
           }
           if (submissionResponse.status >= 500) {
-            throw new Error("Greška servera. Pokušajte ponovo kasnije.");
+            throw new Error("A server error occurred. Please try again later.");
           }
           throw new Error(
-            result.error || "Prijava nije poslana. Provjerite podatke."
+            result.error || "Your message could not be sent. Check your details and try again."
           );
         }
 
         if (result.success !== true) {
-          throw new Error("Prijava nije potvrđena. Pokušajte ponovo.");
+          throw new Error("Your submission was not confirmed. Please try again.");
         }
 
-        status.textContent = "Prijava je uspješno zaprimljena.";
+        status.textContent = typeof configuration.successMessage === "string"
+          ? configuration.successMessage
+          : "Your message has been received.";
+        status.setAttribute("data-flyrank-success", "");
         form.reset();
       } catch (error) {
         status.textContent = error instanceof TypeError
-          ? "Nije moguće povezati se sa serverom. Provjerite vezu i CORS postavke."
-          : error.message || "Greška pri slanju prijave.";
+          ? "Could not connect to the server. Check your connection and CORS settings."
+          : error.message || "An error occurred while sending your message.";
         status.setAttribute("data-flyrank-error", "");
       } finally {
         submitting = false;
@@ -244,7 +309,9 @@
     });
 
     status.textContent = "";
-    root.replaceChildren(heading, form, status);
+    widget.replaceChildren(heading);
+    if (description.textContent) widget.append(description);
+    widget.append(form, status);
   }
 
   loadConfiguration();

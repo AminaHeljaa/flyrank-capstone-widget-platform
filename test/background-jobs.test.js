@@ -1,8 +1,12 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const { createHmac } = require("node:crypto");
 const { createTestDatabase } = require("../test-support/database");
 const { JobQueue } = require("../src/services/job-queue");
 const { JobWorker } = require("../src/services/job-worker");
+const {
+  createSubmissionWebhookService
+} = require("../src/services/submission-webhook");
 
 const testDatabase = createTestDatabase();
 const db = require("../src/db");
@@ -226,4 +230,169 @@ test("competing workers cannot process the same job at once", async () => {
   assert.equal(calls, 1);
   assert.equal(db.prepare("SELECT status FROM background_jobs WHERE id = ?")
     .get(createdJob.id).status, "completed");
+});
+
+test("submission webhook delivery is signed and idempotent across retries", async () => {
+  let now = 500000;
+  let deliveryAttempts = 0;
+  const requests = [];
+  const warnings = [];
+  const secret = "test-webhook-secret-that-is-at-least-32-bytes";
+  const service = createSubmissionWebhookService({
+    url: "https://hooks.example.test/flyrank",
+    secret,
+    timeoutMs: 1000,
+    fetchImpl: async (url, options) => {
+      requests.push({ url, options });
+      deliveryAttempts += 1;
+      return { ok: deliveryAttempts > 1 };
+    }
+  });
+  const queue = new JobQueue(db, {
+    now: () => now,
+    maxAttempts: 2,
+    baseDelayMs: 25
+  });
+  const submissionId = createSubmission("Webhook Lead");
+  const firstJobId = queue.enqueueSubmissionWebhook({ submissionId });
+  const duplicateJobId = queue.enqueueSubmissionWebhook({ submissionId });
+  assert.equal(duplicateJobId, firstJobId);
+  assert.equal(db.prepare(`
+    SELECT COUNT(*) AS count FROM background_jobs
+    WHERE type = 'submission_webhook' AND submission_id = ?
+  `).get(submissionId).count, 1);
+
+  const worker = new JobWorker({
+    queue,
+    logger: { warn: (message) => warnings.push(message) },
+    deliverWebhook: (job) => service.deliver({
+      id: `submission.${job.submission_id}`,
+      type: "submission.created",
+      data: { submissionId: job.submission_id }
+    }, job.submission_id)
+  });
+
+  await worker.runOnce();
+  let job = db.prepare("SELECT * FROM background_jobs WHERE id = ?")
+    .get(firstJobId);
+  assert.equal(job.status, "pending");
+  assert.equal(job.last_error, "WEBHOOK_DELIVERY_FAILED");
+  assert.equal(job.next_attempt_at, 500025);
+  assert.equal(job.payload_json, "{}");
+
+  now += 25;
+  await worker.runOnce();
+  job = db.prepare("SELECT * FROM background_jobs WHERE id = ?")
+    .get(firstJobId);
+  assert.equal(job.status, "completed");
+  assert.equal(job.attempts, 2);
+  assert.equal(job.payload_json, "{}");
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0].url, "https://hooks.example.test/flyrank");
+  assert.equal(
+    requests[0].options.headers["Idempotency-Key"],
+    `flyrank-submission-${submissionId}`
+  );
+  assert.equal(
+    requests[1].options.headers["Idempotency-Key"],
+    requests[0].options.headers["Idempotency-Key"]
+  );
+  assert.match(
+    requests[0].options.headers["X-FlyRank-Signature"],
+    /^sha256=[a-f0-9]{64}$/
+  );
+  assert.equal(
+    requests[0].options.headers["X-FlyRank-Signature"],
+    `sha256=${createHmac("sha256", secret)
+      .update(requests[0].options.body)
+      .digest("hex")}`
+  );
+  assert.equal(
+    db.prepare("SELECT COUNT(*) AS count FROM submissions WHERE id = ?")
+      .get(submissionId).count,
+    1
+  );
+  assert.deepEqual(warnings, []);
+});
+
+test("permanent webhook failure keeps the lead and logs no personal data", async () => {
+  const warnings = [];
+  const queue = new JobQueue(db, {
+    maxAttempts: 1
+  });
+  const submissionId = createSubmission("Webhook failure private lead");
+  const jobId = queue.enqueueSubmissionWebhook({ submissionId });
+  const worker = new JobWorker({
+    queue,
+    logger: { warn: (message) => warnings.push(message) },
+    deliverWebhook: async () => {
+      throw new Error(
+        "webhook response contains private@example.com and secret token"
+      );
+    }
+  });
+
+  await worker.runOnce();
+  const job = db.prepare("SELECT * FROM background_jobs WHERE id = ?")
+    .get(jobId);
+  assert.equal(job.status, "failed");
+  assert.equal(job.last_error, "WEBHOOK_DELIVERY_FAILED");
+  assert.equal(job.payload_json, "{}");
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /type=submission_webhook/);
+  assert.equal(warnings[0].includes("private@example.com"), false);
+  assert.equal(warnings[0].includes("secret token"), false);
+  assert.equal(db.prepare(`
+    SELECT email, message FROM submissions WHERE id = ?
+  `).get(submissionId).email, "worker@example.com");
+});
+
+test("webhook configuration rejects unsafe destinations and weak secrets", () => {
+  assert.throws(
+    () => createSubmissionWebhookService({ url: "http://example.test/hook" }),
+    /must use HTTPS/
+  );
+  assert.throws(
+    () => createSubmissionWebhookService({
+      url: "https://hooks.example.test",
+      secret: "too-short"
+    }),
+    /at least 32 bytes/
+  );
+  assert.throws(
+    () => createSubmissionWebhookService({
+      url: "https://hooks.example.test"
+    }),
+    /is required/
+  );
+  assert.throws(
+    () => createSubmissionWebhookService({
+      url: "https://user:password@hooks.example.test"
+    }),
+    /must use HTTPS/
+  );
+  assert.equal(
+    createSubmissionWebhookService({ url: "" }).enabled,
+    false
+  );
+});
+
+test("webhook requests are aborted after their configured timeout", async () => {
+  const service = createSubmissionWebhookService({
+    url: "https://hooks.example.test",
+    secret: "test-webhook-secret-that-is-at-least-32-bytes",
+    timeoutMs: 5,
+    fetchImpl: async (url, options) => new Promise((resolve, reject) => {
+      options.signal.addEventListener("abort", () => {
+        const error = new Error("aborted");
+        error.name = "AbortError";
+        reject(error);
+      }, { once: true });
+    })
+  });
+
+  await assert.rejects(
+    service.deliver({ type: "submission.created" }, 1),
+    { name: "AbortError" }
+  );
 });

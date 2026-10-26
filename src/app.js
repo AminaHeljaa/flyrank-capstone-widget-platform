@@ -11,6 +11,9 @@ const db = require("./db");
 const geolocation = require("./services/geolocation");
 const { JobQueue } = require("./services/job-queue");
 const { JobWorker } = require("./services/job-worker");
+const {
+  createSubmissionWebhookService
+} = require("./services/submission-webhook");
 
 const app = express();
 app.locals.geolocate = geolocation.lookup;
@@ -20,8 +23,42 @@ const jobQueue = new JobQueue(db, {
   maxDelayMs: process.env.BACKGROUND_JOB_RETRY_MAX_MS,
   leaseMs: process.env.BACKGROUND_JOB_LEASE_MS
 });
+const submissionWebhook = createSubmissionWebhookService();
 app.locals.jobQueue = jobQueue;
 app.locals.enqueueGeolocation = (job) => jobQueue.enqueueGeolocation(job);
+app.locals.submissionWebhookEnabled = submissionWebhook.enabled;
+app.locals.enqueueSubmissionWebhook = (job) =>
+  jobQueue.enqueueSubmissionWebhook(job);
+app.locals.deliverSubmissionWebhook = async (job) => {
+  const submission = db.prepare(`
+    SELECT submissions.id, submissions.name, submissions.email,
+           submissions.message, submissions.created_at,
+           widgets.id AS widget_id, widgets.name AS widget_name
+    FROM submissions
+    JOIN widgets ON widgets.id = submissions.widget_id
+    WHERE submissions.id = ?
+  `).get(job.submission_id);
+  if (!submission) throw new Error("WEBHOOK_DELIVERY_FAILED");
+
+  return submissionWebhook.deliver({
+    id: `submission.${submission.id}`,
+    type: "submission.created",
+    createdAt: submission.created_at,
+    data: {
+      widget: {
+        id: submission.widget_id,
+        name: submission.widget_name
+      },
+      submission: {
+        id: submission.id,
+        name: submission.name,
+        email: submission.email,
+        message: submission.message,
+        createdAt: submission.created_at
+      }
+    }
+  }, submission.id);
+};
 const PORT = process.env.PORT || 3000;
 const SESSION_COOKIE = "flyrank_session";
 const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
@@ -87,7 +124,7 @@ app.use(
     legacyHeaders: false,
     handler(req, res) {
       res.status(429).json({
-        error: "Previše API zahtjeva. Pokušajte ponovo kasnije.",
+        error: "Too many API requests. Please try again later.",
         code: "API_RATE_LIMIT_EXCEEDED"
       });
     }
@@ -110,7 +147,7 @@ const widgetSubmissionRateLimit = rateLimit({
   legacyHeaders: false,
   handler(req, res) {
     res.status(429).json({
-      error: "Previše pokušaja slanja. Pokušajte ponovo kasnije.",
+      error: "Too many submission attempts. Please try again later.",
       code: "RATE_LIMIT_EXCEEDED"
     });
   }
@@ -134,7 +171,7 @@ const registrationSchema = z.object({
     .max(72)
     .refine(
       (password) => Buffer.byteLength(password, "utf8") <= 72,
-      "Lozinka ne smije biti duža od 72 bajta."
+      "Password must not exceed 72 bytes."
     )
 });
 
@@ -145,13 +182,38 @@ const loginSchema = z.object({
     .max(72)
     .refine(
       (password) => Buffer.byteLength(password, "utf8") <= 72,
-      "Lozinka ne smije biti duža od 72 bajta."
+      "Password must not exceed 72 bytes."
     )
 });
 
+const widgetFields = ["name", "email", "message"];
 const widgetSchema = z.object({
-  name: z.string().trim().min(2).max(100)
+  name: z.string().trim().min(2).max(100),
+  title: z.string().trim().min(2).max(100).optional(),
+  description: z.string().trim().max(500).optional(),
+  buttonText: z.string().trim().min(2).max(40).optional(),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+  fields: z.array(z.enum(widgetFields)).min(1).max(widgetFields.length)
+    .refine((fields) => new Set(fields).size === fields.length).optional(),
+  successMessage: z.string().trim().min(2).max(200).optional()
 }).strict();
+
+const widgetUpdateSchema = widgetSchema.partial()
+  .refine((widget) => Object.keys(widget).length > 0);
+
+function widgetSettings(data, current = {}) {
+  return {
+    name: data.name ?? current.name,
+    title: data.title ?? current.title ?? data.name ?? current.name,
+    description: data.description ?? current.description ?? "",
+    buttonText: data.buttonText ?? current.button_text ?? "Send",
+    color: data.color ?? current.color ?? "#3158d4",
+    fields: data.fields ?? current.fields ?? widgetFields,
+    successMessage: data.successMessage
+      ?? current.success_message
+      ?? "Your message has been received."
+  };
+}
 
 const submissionSchema = z.object({
   name: z.string().max(100).trim().min(2),
@@ -218,7 +280,7 @@ function createSession(userId, res) {
 function requireAuth(req, res, next) {
   const token = requestSessionToken(req);
   if (!token) {
-    return res.status(401).json({ error: "Potrebna je prijava." });
+    return res.status(401).json({ error: "Authentication is required." });
   }
 
   const hash = tokenHash(token);
@@ -234,7 +296,7 @@ function requireAuth(req, res, next) {
       db.prepare("DELETE FROM sessions WHERE token_hash = ?").run(hash);
     }
     clearSessionCookie(res);
-    return res.status(401).json({ error: "Potrebna je prijava." });
+    return res.status(401).json({ error: "Authentication is required." });
   }
 
   req.user = { id: session.id, email: session.email };
@@ -244,7 +306,7 @@ function requireAuth(req, res, next) {
 
 function validationError(res, result) {
   return res.status(400).json({
-    error: "Podaci nisu ispravni.",
+    error: "The provided data is invalid.",
     details: result.error.issues.map((issue) => ({
       field: issue.path.join("."),
       message: issue.message
@@ -259,11 +321,19 @@ function parseWidgetId(value) {
 }
 
 function serializeWidget(widget) {
+  const fields = JSON.parse(widget.fields_json || '["name","email","message"]');
   return {
     id: widget.id,
     name: widget.name,
     publicKey: widget.public_key,
-    createdAt: widget.created_at
+    createdAt: widget.created_at,
+    title: widget.title || widget.name,
+    description: widget.description || "",
+    buttonText: widget.button_text || "Send",
+    color: widget.color || "#3158d4",
+    fields,
+    successMessage: widget.success_message
+      || "Your message has been received."
   };
 }
 
@@ -287,7 +357,7 @@ app.post("/api/auth/register", authRateLimit, async (req, res) => {
   `).run(email, passwordHash);
 
   if (insert.changes === 0) {
-    return res.status(409).json({ error: "Email adresa je već registrovana." });
+    return res.status(409).json({ error: "This email address is already registered." });
   }
 
   const user = { id: Number(insert.lastInsertRowid), email };
@@ -309,7 +379,7 @@ app.post("/api/auth/login", authRateLimit, async (req, res) => {
     : false;
 
   if (!passwordMatches) {
-    return res.status(401).json({ error: "Email ili lozinka nisu ispravni." });
+    return res.status(401).json({ error: "The email address or password is incorrect." });
   }
 
   revokeRequestSession(req);
@@ -332,7 +402,8 @@ app.use("/api/owner", requireAuth);
 
 app.get("/api/owner/widgets", (req, res) => {
   const widgets = db.prepare(`
-    SELECT id, name, public_key, created_at
+    SELECT id, name, public_key, created_at, title, description, button_text,
+           color, fields_json, success_message
     FROM widgets
     WHERE owner_id = ?
     ORDER BY id DESC
@@ -346,12 +417,27 @@ app.post("/api/owner/widgets", (req, res) => {
   if (!result.success) return validationError(res, result);
 
   const publicKey = randomBytes(24).toString("base64url");
+  const settings = widgetSettings(result.data);
   const insert = db.prepare(`
-    INSERT INTO widgets (name, public_key, owner_id)
-    VALUES (?, ?, ?)
-  `).run(result.data.name, publicKey, req.user.id);
+    INSERT INTO widgets (
+      name, public_key, owner_id, title, description, button_text, color,
+      fields_json, success_message
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    settings.name,
+    publicKey,
+    req.user.id,
+    settings.title,
+    settings.description,
+    settings.buttonText,
+    settings.color,
+    JSON.stringify(settings.fields),
+    settings.successMessage
+  );
   const widget = db.prepare(`
-    SELECT id, name, public_key, created_at
+    SELECT id, name, public_key, created_at, title, description, button_text,
+           color, fields_json, success_message
     FROM widgets WHERE id = ?
   `).get(insert.lastInsertRowid);
 
@@ -361,36 +447,65 @@ app.post("/api/owner/widgets", (req, res) => {
 app.get("/api/owner/widgets/:widgetId", (req, res) => {
   const widgetId = parseWidgetId(req.params.widgetId);
   const widget = widgetId && db.prepare(`
-    SELECT id, name, public_key, created_at
+    SELECT id, name, public_key, created_at, title, description, button_text,
+           color, fields_json, success_message
     FROM widgets
     WHERE id = ? AND owner_id = ?
   `).get(widgetId, req.user.id);
 
-  if (!widget) return res.status(404).json({ error: "Widget nije pronađen." });
+  if (!widget) return res.status(404).json({ error: "Widget not found." });
   res.json({ widget: serializeWidget(widget) });
 });
 
 function updateWidget(req, res) {
   const widgetId = parseWidgetId(req.params.widgetId);
   if (!widgetId) {
-    return res.status(404).json({ error: "Widget nije pronađen." });
+    return res.status(404).json({ error: "Widget not found." });
   }
 
-  const result = widgetSchema.safeParse(req.body);
+  const result = widgetUpdateSchema.safeParse(req.body);
   if (!result.success) return validationError(res, result);
+
+  const current = db.prepare(`
+    SELECT id, name, title, description, button_text, color, fields_json,
+           success_message
+    FROM widgets WHERE id = ? AND owner_id = ?
+  `).get(widgetId, req.user.id);
+  if (!current) {
+    return res.status(404).json({ error: "Widget not found." });
+  }
+  const settings = widgetSettings({
+    ...result.data,
+    fields: result.data.fields
+  }, {
+    ...current,
+    fields: JSON.parse(current.fields_json)
+  });
 
   const update = db.prepare(`
     UPDATE widgets
-    SET name = ?
+    SET name = ?, title = ?, description = ?, button_text = ?, color = ?,
+        fields_json = ?, success_message = ?
     WHERE id = ? AND owner_id = ?
-  `).run(result.data.name, widgetId, req.user.id);
+  `).run(
+    settings.name,
+    settings.title,
+    settings.description,
+    settings.buttonText,
+    settings.color,
+    JSON.stringify(settings.fields),
+    settings.successMessage,
+    widgetId,
+    req.user.id
+  );
 
   if (update.changes === 0) {
-    return res.status(404).json({ error: "Widget nije pronađen." });
+    return res.status(404).json({ error: "Widget not found." });
   }
 
   const widget = db.prepare(`
-    SELECT id, name, public_key, created_at
+    SELECT id, name, public_key, created_at, title, description, button_text,
+           color, fields_json, success_message
     FROM widgets WHERE id = ?
   `).get(widgetId);
   res.json({ widget: serializeWidget(widget) });
@@ -403,7 +518,7 @@ app.route("/api/owner/widgets/:widgetId")
 app.delete("/api/owner/widgets/:widgetId", (req, res) => {
   const widgetId = parseWidgetId(req.params.widgetId);
   if (!widgetId) {
-    return res.status(404).json({ error: "Widget nije pronađen." });
+    return res.status(404).json({ error: "Widget not found." });
   }
 
   const deleteWidget = db.transaction(() => {
@@ -419,7 +534,7 @@ app.delete("/api/owner/widgets/:widgetId", (req, res) => {
   });
 
   if (!deleteWidget()) {
-    return res.status(404).json({ error: "Widget nije pronađen." });
+    return res.status(404).json({ error: "Widget not found." });
   }
   res.status(204).end();
 });
@@ -430,12 +545,12 @@ app.get("/api/owner/widgets/:widgetId/submissions", (req, res) => {
     SELECT id FROM widgets WHERE id = ? AND owner_id = ?
   `).get(widgetId, req.user.id);
 
-  if (!widget) return res.status(404).json({ error: "Widget nije pronađen." });
+  if (!widget) return res.status(404).json({ error: "Widget not found." });
 
   const limitResult = z.coerce.number().int().min(1).max(100)
     .safeParse(req.query.limit ?? 100);
   if (!limitResult.success) {
-    return res.status(400).json({ error: "Limit mora biti između 1 i 100." });
+    return res.status(400).json({ error: "Limit must be between 1 and 100." });
   }
 
   const submissions = db.prepare(`
@@ -457,7 +572,7 @@ app.get("/api/owner/widgets/:widgetId/stats", (req, res) => {
     SELECT id FROM widgets WHERE id = ? AND owner_id = ?
   `).get(widgetId, req.user.id);
 
-  if (!widget) return res.status(404).json({ error: "Widget nije pronađen." });
+  if (!widget) return res.status(404).json({ error: "Widget not found." });
 
   const stats = db.prepare(`
     SELECT COUNT(*) AS total FROM submissions WHERE widget_id = ?
@@ -475,7 +590,7 @@ app.get("/api/owner/dashboard", (req, res) => {
     : parseWidgetId(String(req.query.widgetId));
 
   if (req.query.widgetId !== undefined && !requestedWidgetId) {
-    return res.status(400).json({ error: "ID widgeta nije ispravan." });
+    return res.status(400).json({ error: "The widget ID is invalid." });
   }
 
   if (requestedWidgetId) {
@@ -484,12 +599,14 @@ app.get("/api/owner/dashboard", (req, res) => {
     `).get(requestedWidgetId, req.user.id);
 
     if (!ownedWidget) {
-      return res.status(404).json({ error: "Widget nije pronađen." });
+      return res.status(404).json({ error: "Widget not found." });
     }
   }
 
   const widgets = db.prepare(`
     SELECT widgets.id, widgets.name, widgets.public_key, widgets.created_at,
+           widgets.title, widgets.description, widgets.button_text,
+           widgets.color, widgets.fields_json, widgets.success_message,
            COUNT(submissions.id) AS submission_count
     FROM widgets
     LEFT JOIN submissions ON submissions.widget_id = widgets.id
@@ -569,7 +686,8 @@ app.get("/api/owner/dashboard", (req, res) => {
 
 app.get("/api/widgets/:publicKey", (req, res) => {
   const widget = db.prepare(`
-    SELECT id, name, public_key
+    SELECT id, name, public_key, title, description, button_text, color,
+           fields_json, success_message
     FROM widgets
     WHERE public_key = ?
   `).get(req.params.publicKey);
@@ -577,7 +695,7 @@ app.get("/api/widgets/:publicKey", (req, res) => {
   if (!widget) {
     res.set("Cache-Control", "no-store");
     return res.status(404).json({
-      error: "Widget nije pronađen."
+      error: "Widget not found."
     });
   }
 
@@ -585,7 +703,13 @@ app.get("/api/widgets/:publicKey", (req, res) => {
   res.json({
     name: widget.name,
     publicKey: widget.public_key,
-    fields: ["name", "email", "message"]
+    title: widget.title || widget.name,
+    description: widget.description || "",
+    buttonText: widget.button_text || "Send",
+    color: widget.color || "#3158d4",
+    fields: JSON.parse(widget.fields_json || '["name","email","message"]'),
+    successMessage: widget.success_message
+      || "Your message has been received."
   });
 });
 
@@ -601,22 +725,37 @@ app.post(
     if (honeypotFilled) {
       return res.status(200).json({
         success: true,
-        message: "Prijava je zaprimljena."
+        message: "Your message has been received."
       });
     }
 
     const widget = db.prepare(`
-      SELECT id FROM widgets WHERE public_key = ?
+      SELECT id, fields_json FROM widgets WHERE public_key = ?
     `).get(req.params.publicKey);
 
     if (!widget) {
       res.set("Cache-Control", "no-store");
       return res.status(404).json({
-        error: "Widget nije pronađen."
+        error: "Widget not found."
       });
     }
 
-    const result = submissionSchema.safeParse(req.body);
+    const configuredFields = JSON.parse(
+      widget.fields_json || '["name","email","message"]'
+    );
+    const configuredFieldSet = new Set(configuredFields);
+    const result = z.object({
+      name: configuredFieldSet.has("name")
+        ? submissionSchema.shape.name
+        : z.string().optional().default(""),
+      email: configuredFieldSet.has("email")
+        ? submissionSchema.shape.email
+        : z.string().optional().default(""),
+      message: configuredFieldSet.has("message")
+        ? submissionSchema.shape.message
+        : z.string().optional().default(""),
+      website: submissionSchema.shape.website
+    }).strict().safeParse(req.body);
     if (!result.success) return validationError(res, result);
 
     const { name, email, message } = result.data;
@@ -637,6 +776,18 @@ app.post(
       );
     }
 
+    if (app.locals.submissionWebhookEnabled) {
+      try {
+        app.locals.enqueueSubmissionWebhook({
+          submissionId: Number(submission.lastInsertRowid)
+        });
+      } catch {
+        console.warn(
+          "Submission webhook job could not be queued; submission was saved."
+        );
+      }
+    }
+
     res.status(201).json({
       success: true,
       submissionId: submission.lastInsertRowid
@@ -651,7 +802,7 @@ app.get("/api/widgets/:publicKey/stats", requireAuth, (req, res) => {
   `).get(req.params.publicKey, req.user.id);
 
   if (!widget) {
-    return res.status(404).json({ error: "Widget nije pronađen." });
+    return res.status(404).json({ error: "Widget not found." });
   }
 
   const stats = db.prepare(`
@@ -669,21 +820,21 @@ app.use((error, req, res, next) => {
 
   if (error.type === "entity.too.large") {
     return res.status(413).json({
-      error: "Zahtjev je prevelik.",
+      error: "The request is too large.",
       code: "PAYLOAD_TOO_LARGE"
     });
   }
 
   if (error.type === "entity.parse.failed") {
     return res.status(400).json({
-      error: "JSON tijelo zahtjeva nije ispravno.",
+      error: "The request body contains invalid JSON.",
       code: "INVALID_JSON"
     });
   }
 
   console.error("Unhandled request error:", error);
   res.status(500).json({
-    error: "Došlo je do greške na serveru.",
+    error: "An unexpected server error occurred.",
     code: "INTERNAL_SERVER_ERROR"
   });
 });
@@ -692,6 +843,7 @@ if (require.main === module) {
   const worker = new JobWorker({
     queue: jobQueue,
     geolocate: (ip) => app.locals.geolocate(ip),
+    deliverWebhook: (job) => app.locals.deliverSubmissionWebhook(job),
     pollIntervalMs: process.env.BACKGROUND_JOB_POLL_INTERVAL_MS
   });
   worker.start();

@@ -7,6 +7,8 @@ function createTestDatabase() {
     path.join(os.tmpdir(), "flyrank-widget-test-")
   );
   process.env.DATABASE_PATH = path.join(directory, "test.db");
+  process.env.SUBMISSION_WEBHOOK_URL = "";
+  process.env.SUBMISSION_WEBHOOK_SECRET = "";
 
   return {
     cleanup() {

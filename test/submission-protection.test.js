@@ -70,7 +70,7 @@ test("public submissions validate payloads, quietly reject honeypot and rate lim
   const missing = await jsonSubmission({});
   assert.equal(missing.status, 400);
   const missingBody = await missing.json();
-  assert.equal(missingBody.error, "Podaci nisu ispravni.");
+  assert.equal(missingBody.error, "The provided data is invalid.");
   assert.ok(Array.isArray(missingBody.details));
   assert.equal(missingBody.code, undefined);
 
@@ -80,7 +80,7 @@ test("public submissions validate payloads, quietly reject honeypot and rate lim
     message: "Message"
   });
   assert.equal(invalidFields.status, 400);
-  assert.equal((await invalidFields.json()).error, "Podaci nisu ispravni.");
+  assert.equal((await invalidFields.json()).error, "The provided data is invalid.");
 
   const invalidEmail = await jsonSubmission({
     name: "Valid Name",
@@ -122,7 +122,7 @@ test("public submissions validate payloads, quietly reject honeypot and rate lim
   assert.equal(honeypot.status, 200);
   assert.deepEqual(await honeypot.json(), {
     success: true,
-    message: "Prijava je zaprimljena."
+    message: "Your message has been received."
   });
   assert.equal(
     db.prepare("SELECT COUNT(*) AS count FROM submissions").get().count,
@@ -136,7 +136,7 @@ test("public submissions validate payloads, quietly reject honeypot and rate lim
     "https://publisher.example"
   );
   assert.deepEqual(await malformedJson.json(), {
-    error: "JSON tijelo zahtjeva nije ispravno.",
+    error: "The request body contains invalid JSON.",
     code: "INVALID_JSON"
   });
 
@@ -151,7 +151,7 @@ test("public submissions validate payloads, quietly reject honeypot and rate lim
     "https://publisher.example"
   );
   assert.deepEqual(await oversized.json(), {
-    error: "Zahtjev je prevelik.",
+    error: "The request is too large.",
     code: "PAYLOAD_TOO_LARGE"
   });
 
@@ -176,7 +176,7 @@ test("public submissions validate payloads, quietly reject honeypot and rate lim
     "https://publisher.example"
   );
   assert.deepEqual(await limited.json(), {
-    error: "Previše pokušaja slanja. Pokušajte ponovo kasnije.",
+    error: "Too many submission attempts. Please try again later.",
     code: "RATE_LIMIT_EXCEEDED"
   });
   assert.equal(

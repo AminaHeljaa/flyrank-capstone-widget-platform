@@ -1,62 +1,54 @@
 <!DOCTYPE html>
-<html lang="bs">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#f3f6fb">
-  <title>Vanjski embed demo — FlyRank</title>
-  <style>
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      padding: 32px 18px;
-      color: #17243b;
-      background: #f3f6fb;
-      font: 16px/1.5 Arial, sans-serif;
-    }
-    main {
-      width: min(760px, 100%);
-      margin: 0 auto;
-    }
-    header, .embed-panel {
-      padding: 24px;
-      border-radius: 14px;
-      background: #fff;
-      box-shadow: 0 8px 28px #17243b12;
-    }
-    header {
-      margin-bottom: 20px;
-      color: white;
-      background: #142b4a;
-    }
-    h1, h2 { margin-top: 0; }
-    .hint { color: #63718a; }
-    header .hint { color: #dbe9f8; }
-    code {
-      padding: 2px 5px;
-      border-radius: 4px;
-      background: #eef3fa;
-      overflow-wrap: anywhere;
-    }
-  </style>
+  <meta name="theme-color" content="#101b35">
+  <meta name="description" content="Try the FlyRank form embedded on a separate page.">
+  <title>Live embed demo — FlyRank</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/embed-demo.css">
 </head>
-<body>
-  <main>
-    <header>
-      <h1>Vanjska stranica — embed demo</h1>
+<body class="demo-page">
+  <main class="demo-main">
+    <header class="demo-header">
+      <nav class="demo-nav" aria-label="Main navigation">
+        <a class="brand brand-light" href="/">
+          <span class="brand-mark" aria-hidden="true">F</span> FlyRank
+        </a>
+        <div class="demo-nav-links">
+          <a href="/">Home</a>
+          <a href="/dashboard.html">Dashboard</a>
+        </div>
+      </nav>
+      <h1>A small embed. A simpler way to capture leads.</h1>
       <p class="hint">
-        Ovaj obrazac se učitava preko jednog eksternog script taga sa FlyRank servera.
+        This demo represents a separate origin. The form loads from the FlyRank server with a single script tag.
       </p>
     </header>
 
-    <section class="embed-panel">
-      <h2>Kontakt obrazac</h2>
+    <section class="embed-panel demo-panel">
+      <h2>Send us a message</h2>
       <p class="hint">
-        Javni ključ za lokalnu probu: <code>demo-widget</code>.
+        This widget uses the public key <code id="widget-key-hint">demo-widget</code>.
+        Use your public HTTPS server URL when deploying to a live website.
       </p>
-      <script
-        src="http://localhost:3000/widget/v1.js"
-        data-widget-key="demo-widget"></script>
+      <div id="demo-widget-slot"></div>
+      <script>
+        const demoOptions = new URLSearchParams(window.location.search);
+        const widgetKey = demoOptions.get("widgetKey") || "demo-widget";
+        const widgetServer = demoOptions.get("widgetServer")
+          || "http://localhost:3000";
+        document.getElementById("widget-key-hint").textContent = widgetKey;
+        const embedScript = document.createElement("script");
+        embedScript.src = new URL("/widget/v1.js", widgetServer).href;
+        embedScript.dataset.widgetKey = widgetKey;
+        document.getElementById("demo-widget-slot").append(embedScript);
+      </script>
+      <div class="demo-note">
+        <span aria-hidden="true">↗</span>
+        <span><strong>Embedded form.</strong> The form is served by FlyRank. Its styles are isolated from this page.</span>
+      </div>
     </section>
   </main>
 </body>

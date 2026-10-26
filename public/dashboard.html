@@ -1,10 +1,11 @@
 <!DOCTYPE html>
-<html lang="bs">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#142b4a">
-  <title>Dashboard — FlyRank Widget Platform</title>
+  <meta name="theme-color" content="#101b35">
+  <meta name="description" content="Manage your FlyRank widgets and lead submissions.">
+  <title>Workspace — FlyRank</title>
   <style>
     :root {
       color-scheme: light;
@@ -176,87 +177,100 @@
       .section-heading { align-items: flex-start; flex-direction: column; }
     }
   </style>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/dashboard.css">
 </head>
 <body>
   <header class="topbar">
-    <p class="brand">FlyRank <span>Widget Platform</span></p>
-    <nav aria-label="Glavna navigacija">
+    <p class="brand">FlyRank <span>Workspace</span></p>
+    <nav aria-label="Main navigation">
       <a href="/dashboard.html">Dashboard</a>
-      <a href="/">Demo obrazac</a>
+      <a href="/">Home</a>
+      <a href="/embed-demo.html">Embed demo</a>
     </nav>
     <div class="account" id="account-bar" hidden>
       <span class="account-email" id="account-email"></span>
       <button class="button secondary small" id="logout-button" type="button">
-        Odjava
+        Log out
       </button>
     </div>
   </header>
 
   <main>
     <section class="auth-wrap card" id="auth-panel" hidden>
-      <h1>Vaš dashboard</h1>
-      <p class="muted">Prijavite se ili napravite račun za upravljanje widgetima.</p>
-      <div class="auth-tabs" role="tablist" aria-label="Prijava ili registracija">
+      <span class="eyebrow"><span class="eyebrow-dot"></span> FlyRank workspace</span>
+      <h1>Your dashboard</h1>
+      <p class="muted">Sign in or create an account to manage your widgets and submissions.</p>
+      <div class="auth-tabs" role="tablist" aria-label="Sign in or create an account">
         <button class="button" id="login-tab" type="button" role="tab"
-          aria-selected="true">Prijava</button>
+          aria-selected="true">Sign in</button>
         <button class="button secondary" id="register-tab" type="button" role="tab"
-          aria-selected="false">Registracija</button>
+          aria-selected="false">Create account</button>
       </div>
       <form id="auth-form">
         <div class="field">
-          <label for="auth-email">Email adresa</label>
+          <label for="auth-email">Email address</label>
           <input id="auth-email" name="email" type="email" autocomplete="email"
             maxlength="254" required>
         </div>
         <div class="field">
-          <label for="auth-password">Lozinka</label>
+          <label for="auth-password">Password</label>
           <input id="auth-password" name="password" type="password"
             autocomplete="current-password" minlength="12" maxlength="72" required>
         </div>
-        <button class="button" id="auth-submit" type="submit">Prijavi se</button>
+        <button class="button" id="auth-submit" type="submit">Sign in</button>
         <p class="status" id="auth-status" role="status" aria-live="polite"></p>
       </form>
       <p class="muted auth-note">
-        Lozinka za registraciju mora imati najmanje 12 znakova.
+        Passwords must be at least 12 characters long.
       </p>
     </section>
 
     <section id="dashboard-panel" hidden>
       <div class="page-heading">
         <div>
-          <h1>Pregled platforme</h1>
-          <p class="muted">Upravljajte widgetima i pratite pristigle prijave.</p>
+          <span class="eyebrow"><span class="eyebrow-dot"></span> Workspace overview</span>
+          <h1>Your lead workspace</h1>
+          <p class="muted">Manage your widgets and keep track of incoming submissions.</p>
         </div>
         <button class="button secondary" id="refresh-button" type="button">
-          Osvježi podatke
+          Refresh data
         </button>
       </div>
 
       <p class="status" id="dashboard-status" role="status" aria-live="polite"></p>
 
-      <section class="grid stats-grid" aria-label="Statistika">
+      <section class="grid stats-grid" aria-label="Workspace statistics">
         <article class="card">
-          <p class="stat-label">Vaši widgeti</p>
+          <p class="stat-label">Your widgets</p>
           <p class="stat-value" id="widget-count">—</p>
         </article>
         <article class="card">
-          <p class="stat-label">Ukupno prijava</p>
+          <p class="stat-label">All submissions · all widgets</p>
           <p class="stat-value" id="submission-count">—</p>
         </article>
         <article class="card">
-          <p class="stat-label">Geolokacija na čekanju</p>
+          <p class="stat-label" id="selected-submission-label">Selected widget submissions</p>
+          <p class="stat-value" id="selected-submission-count">—</p>
+        </article>
+        <article class="card">
+          <p class="stat-label">Rows shown in table</p>
+          <p class="stat-value" id="table-submission-count">—</p>
+        </article>
+        <article class="card">
+          <p class="stat-label">Background jobs · pending</p>
           <p class="stat-value" id="jobs-pending">—</p>
         </article>
         <article class="card">
-          <p class="stat-label">Geolokacija u obradi</p>
+          <p class="stat-label">Background jobs · processing</p>
           <p class="stat-value" id="jobs-processing">—</p>
         </article>
         <article class="card">
-          <p class="stat-label">Geolokacija završena</p>
+          <p class="stat-label">Background jobs · completed</p>
           <p class="stat-value" id="jobs-completed">—</p>
         </article>
         <article class="card">
-          <p class="stat-label">Geolokacija neuspješna</p>
+          <p class="stat-label">Background jobs · failed</p>
           <p class="stat-value" id="jobs-failed">—</p>
         </article>
       </section>
@@ -265,38 +279,39 @@
         <article class="card">
           <div class="section-heading">
             <div>
-              <h2>Prijave</h2>
-              <p class="muted" id="submission-caption">Najnovije prijave vaših widgeta</p>
+              <h2>Submissions</h2>
+              <p class="muted" id="submission-caption">Latest submissions for your widgets</p>
             </div>
-            <div class="field" style="min-width: 190px; margin: 0">
-              <label for="widget-filter">Prikaži prijave</label>
+            <div class="field widget-filter-field">
+              <label for="widget-filter">Filter by widget</label>
               <select id="widget-filter" disabled>
-                <option value="">Svi widgeti</option>
+                <option value="">All widgets</option>
               </select>
             </div>
           </div>
           <div id="submission-loading" class="loader" hidden aria-live="polite">
-            Učitavanje prijava...
+            Loading submissions...
           </div>
           <div id="submission-empty" class="empty-state" hidden>
-            Još nema prijava za odabrane widgete.
+            No submissions for the selected widgets yet.
           </div>
           <div class="table-wrap" id="submission-table-wrap" hidden>
             <table>
               <thead>
                 <tr>
-                  <th>Ime</th>
+                  <th>Name</th>
                   <th>Email</th>
-                  <th>Poruka</th>
+                  <th>Message</th>
                   <th>Widget</th>
-                  <th>Datum slanja</th>
+                  <th>Location</th>
+                  <th>Submitted</th>
                 </tr>
               </thead>
               <tbody id="submission-rows"></tbody>
             </table>
           </div>
           <p class="notice" id="submission-notice" hidden>
-            Prikazano je najviše 100 najnovijih prijava za odabir.
+            Showing up to 100 of the latest submissions for this selection.
           </p>
         </article>
 
@@ -304,35 +319,138 @@
           <section class="card">
             <div class="section-heading">
               <div>
-                <h2>Vaši widgeti</h2>
-                <p class="muted">Ključevi i kod za ugradnju.</p>
+                <h2>Your widgets</h2>
+                <p class="muted">Settings, live previews, and embed code.</p>
               </div>
+              <button class="button small" id="launch-widget-create" type="button">
+                Create Widget
+              </button>
             </div>
-            <div id="widget-loading" class="loader" hidden>Učitavanje widgeta...</div>
+            <div id="widget-loading" class="loader" hidden>Loading widgets...</div>
             <div id="widget-list" class="widget-list"></div>
             <div id="widget-empty" class="empty-state" hidden>
-              Još nemate widget. Kreirajte prvi ispod.
+              You don't have any widgets yet. Create your first one below.
             </div>
           </section>
 
-          <section class="card">
-            <h2>Kreiraj widget</h2>
-            <p class="muted">Novi widget će biti vezan za vaš račun.</p>
-            <form id="create-widget-form">
-              <div class="field">
-                <label for="widget-name">Naziv widgeta</label>
-                <input id="widget-name" name="name" type="text" minlength="2"
-                  maxlength="100" required>
-              </div>
-              <button class="button" id="create-widget-button" type="submit">
-                Kreiraj widget
-              </button>
-              <p class="status" id="widget-status" role="status" aria-live="polite"></p>
-            </form>
+          <section class="card create-widget-card">
+            <span class="create-widget-icon" aria-hidden="true">✦</span>
+            <h2>Capture your next lead</h2>
+            <p class="muted">Create a branded form and embed it anywhere with one script tag.</p>
+            <button class="button" id="launch-widget-create-secondary" type="button">
+              Create Widget <span aria-hidden="true">→</span>
+            </button>
           </section>
         </aside>
       </section>
     </section>
+    <dialog class="widget-editor-dialog" id="widget-editor-dialog"
+      aria-labelledby="widget-editor-title">
+      <div class="widget-editor-shell">
+        <div class="widget-editor-header">
+          <div>
+            <span class="eyebrow"><span class="eyebrow-dot"></span> Widget builder</span>
+            <h2 id="widget-editor-title">Create a widget</h2>
+            <p class="muted">Personalize the visitor experience. Settings are stored with your widget.</p>
+          </div>
+          <button class="dialog-close" id="close-widget-editor" type="button"
+            aria-label="Close widget editor">×</button>
+        </div>
+        <form id="create-widget-form">
+          <div class="widget-editor-grid">
+            <div class="widget-editor-fields">
+              <div class="field">
+                <label for="widget-name">Internal name</label>
+                <input id="widget-name" name="name" type="text" minlength="2"
+                  maxlength="100" placeholder="e.g. Website contact form" required>
+              </div>
+              <div class="field">
+                <label for="widget-title">Form title</label>
+                <input id="widget-title" name="title" type="text" minlength="2"
+                  maxlength="100" placeholder="How can we help?" required>
+              </div>
+              <div class="field">
+                <label for="widget-description">Description</label>
+                <textarea id="widget-description" name="description" maxlength="500"
+                  rows="2" placeholder="Tell visitors what happens after they get in touch."></textarea>
+              </div>
+              <div class="widget-editor-row">
+                <div class="field">
+                  <label for="widget-button-text">Button text</label>
+                  <input id="widget-button-text" name="buttonText" type="text"
+                    minlength="2" maxlength="40" required>
+                </div>
+                <div class="field color-field">
+                  <label for="widget-color">Accent color</label>
+                  <input id="widget-color" name="color" type="color" value="#3158d4" required>
+                </div>
+              </div>
+              <fieldset class="field-choice-group">
+                <legend>Form fields</legend>
+                <label><input type="checkbox" name="fields" value="name" checked> Name</label>
+                <label><input type="checkbox" name="fields" value="email" checked> Email</label>
+                <label><input type="checkbox" name="fields" value="message" checked> Message</label>
+              </fieldset>
+              <div class="field">
+                <label for="widget-success-message">Success message</label>
+                <input id="widget-success-message" name="successMessage" type="text"
+                  minlength="2" maxlength="200" required>
+              </div>
+              <p class="status" id="widget-status" role="status" aria-live="polite"></p>
+            </div>
+            <aside class="widget-live-preview" aria-label="Live widget preview">
+              <span class="preview-label">LIVE PREVIEW</span>
+              <div class="preview-widget-card">
+                <h3 id="preview-widget-title">How can we help?</h3>
+                <p id="preview-widget-description">Tell visitors what happens after they get in touch.</p>
+                <div id="preview-widget-fields"></div>
+                <button id="preview-widget-button" type="button">Send</button>
+                <span id="preview-widget-success">Your message has been received.</span>
+              </div>
+              <p class="preview-caption">Your final embed renders these saved settings.</p>
+            </aside>
+          </div>
+          <div class="widget-editor-actions">
+            <button class="button secondary" id="cancel-widget-editor" type="button">Cancel</button>
+            <button class="button" id="create-widget-button" type="submit">Create Widget</button>
+          </div>
+        </form>
+      </div>
+    </dialog>
+    <dialog class="embed-dialog" id="embed-dialog" aria-labelledby="embed-dialog-title">
+      <div class="embed-dialog-shell">
+        <div class="widget-editor-header">
+          <div>
+            <span class="eyebrow"><span class="eyebrow-dot"></span> Embed widget</span>
+            <h2 id="embed-dialog-title">Preview and embed code</h2>
+            <p class="muted" id="embed-dialog-description"></p>
+          </div>
+          <button class="dialog-close" id="close-embed-dialog" type="button"
+            aria-label="Close embed preview">×</button>
+        </div>
+        <div class="embed-dialog-preview">
+          <iframe id="embed-preview-frame" title="Embedded widget preview"></iframe>
+        </div>
+        <div class="field embed-dialog-code-field">
+          <label for="embed-dialog-code">Code for another website</label>
+          <textarea id="embed-dialog-code" class="embed-code" readonly
+            aria-describedby="embed-dialog-hint"></textarea>
+          <p class="notice" id="embed-dialog-hint">
+            Copy this code and paste it into the HTML of the page where you want the form to appear.
+          </p>
+        </div>
+        <div class="widget-editor-actions">
+          <button class="button secondary" id="open-embed-preview" type="button">
+            Open preview in a new tab
+          </button>
+          <button class="button secondary" id="copy-embed-dialog-code" type="button">
+            Copy embed code
+          </button>
+          <button class="button" id="close-embed-dialog-done" type="button">Done</button>
+        </div>
+        <p class="status" id="embed-dialog-status" role="status" aria-live="polite"></p>
+      </div>
+    </dialog>
   </main>
 
   <script src="/dashboard.js" defer></script>
