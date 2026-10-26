@@ -1,380 +1,395 @@
 # FlyRank Capstone Widget Platform
 
-Platforma za ugradive obrasce i prikupljanje prijava. Backend koristi Node.js,
-Express, SQLite, Zod i `bcryptjs`; testovi koriste ugrađeni Node.js test runner.
+An embeddable form and lead-capture platform. The backend uses Node.js,
+Express, SQLite, Zod, and `bcryptjs`; tests use the built-in Node.js test
+runner.
 
-## Pokretanje
+## Getting started
 
-Potrebni su Node.js 20+ i npm.
+Node.js 20+ and npm are required.
 
 ```sh
 npm install
 ```
 
-Opcionalno kopirajte `.env.example` u `.env` i prilagodite `PORT` ili
-`DATABASE_PATH`. Pokretanje aplikacije:
+Optionally, copy `.env.example` to `.env` and adjust `PORT` or
+`DATABASE_PATH`. Start the application:
 
 ```sh
 npm start
 ```
 
-Razvojni režim s automatskim restartom:
+Development mode with automatic restarts:
 
 ```sh
 npm run dev
 ```
 
-## Interfejs i ručna provjera
+## Interface and manual checks
 
-FlyRank koristi zajednički dizajnerski sistem bez frontend frameworka ili novih
-runtime zavisnosti. Početna stranica (`/`) predstavlja proizvod i uključuje
-stvarni demo embed; `/dashboard.html` zadržava prijavu, registraciju, widgete,
-prijave i status background poslova; `/embed-demo.html` demonstrira isti
-versioned widget script na izdvojenoj testnoj stranici. Embed stilovi su
-izolovani u Shadow DOM-u, tako da ne preuzimaju CSS stranice domaćina.
+FlyRank uses a shared design system without a frontend framework or additional
+runtime dependencies. The home page (`/`) introduces the product and includes
+a live demo embed; `/dashboard.html` provides sign-in, registration, widget
+and submission management, and background-job status; `/embed-demo.html`
+demonstrates the same versioned widget script on a separate test page. Embed
+styles are isolated in Shadow DOM so they do not inherit the host page's CSS.
 
-Za brzu browser provjeru pokrenite `npm start`, posjetite `/`, zatim otvorite
-`/dashboard.html` i prijavite se ili registrujte. U dashboardu napravite widget,
-kopirajte njegov embed kod i provjerite prikaz koda, brojke, tabelu/prazno
-stanje i povratnu poruku dugmeta za kopiranje. Otvorite `/embed-demo.html` da
-provjerite vanjski embed primjer. Za testiranje stvarnog cross-origin CORS-a
-poslužite `public/` na drugom originu i dodajte njegov tačan origin u
-`WIDGET_ALLOWED_ORIGINS`; lokalni URL u stranici je samo razvojni primjer.
+For a quick browser check, run `npm start`, visit `/`, then open
+`/dashboard.html` and sign in or register. Create a widget in the dashboard,
+copy its embed code, and check the code preview, counts, table/empty state, and
+the copy button's confirmation message. Open `/embed-demo.html` to check the
+external embed example. To test actual cross-origin CORS, serve `public/` from
+a different origin and add its exact origin to `WIDGET_ALLOWED_ORIGINS`; the
+local URL in the page is only a development example.
 
-Aplikacija po zadanim postavkama koristi `widget-platform.db` u korijenu
-projekta. Postojeća baza se ne briše: pri pokretanju se dodaju korisničke i
-sesijske tabele, a postojeći widgeti dobiju sistemskog vlasnika
-`demo-owner@system.invalid`. Taj sistemski nalog nema lozinku za prijavu.
-Obavezno napravite vlastitu kopiju SQLite baze prije ručnog eksperimentisanja s
-migracijama ili promjenama podataka.
+By default, the application uses `widget-platform.db` in the project root.
+The existing database is not deleted: on startup, user and session tables are
+added, and existing widgets are assigned the system owner
+`demo-owner@system.invalid`. This system account has no login password. Always
+make your own copy of the SQLite database before manually experimenting with
+migrations or data changes.
 
-## Autentifikacija
+## Authentication
 
-Registracija i prijava koriste email i lozinku od najmanje 12 znakova (do 72
-UTF-8 bajta). Lozinke se čuvaju kao bcrypt hashovi. Uspješna registracija ili
-prijava postavlja nasumičan, neproziran sesijski token u `HttpOnly`,
-`SameSite=Lax` kolačić; u bazi se čuva samo SHA-256 hash tokena. Sesija traje
-sedam dana. Kolačić dobija oznaku `Secure` kada je `NODE_ENV=production`, zato
-produkcija mora koristiti HTTPS.
+Registration and sign-in use an email address and a password of at least 12
+characters (up to 72 UTF-8 bytes). Passwords are stored as bcrypt hashes.
+Successful registration or sign-in sets a random, opaque session token in an
+`HttpOnly`, `SameSite=Lax` cookie; only the token's SHA-256 hash is stored in
+the database. Sessions last seven days. The cookie is marked `Secure` when
+`NODE_ENV=production`, so production must use HTTPS.
 
-| Metoda | Putanja | Opis |
+| Method | Path | Description |
 | --- | --- | --- |
-| `POST` | `/api/auth/register` | Registracija: `{ "email": "...", "password": "..." }` |
-| `POST` | `/api/auth/login` | Prijava s istim JSON poljima |
-| `POST` | `/api/auth/logout` | Opoziv trenutne sesije |
-| `GET` | `/api/auth/me` | Trenutno prijavljeni korisnik |
+| `POST` | `/api/auth/register` | Register: `{ "email": "...", "password": "..." }` |
+| `POST` | `/api/auth/login` | Sign in with the same JSON fields |
+| `POST` | `/api/auth/logout` | Revoke the current session |
+| `GET` | `/api/auth/me` | Get the currently signed-in user |
 
-Registracija odmah prijavljuje korisnika. Zahtjevi za prijavu/registraciju
-ograničeni su na 10 zahtjeva u 15 minuta po IP adresi.
+Registration signs the user in immediately. Sign-in and registration requests
+are limited to 10 requests per IP address every 15 minutes.
 
-## Widgeti i prijave
+## Widgets and submissions
 
-Svi `/api/owner` endpointi zahtijevaju važeću sesiju i vraćaju samo podatke
-widgeta čiji je `owner_id` prijavljeni korisnik.
+All `/api/owner` endpoints require a valid session and return only data for
+widgets whose `owner_id` belongs to the signed-in user.
 
-| Metoda | Putanja | Opis |
+| Method | Path | Description |
 | --- | --- | --- |
-| `GET` | `/api/owner/dashboard` | Broj widgeta, ukupan broj vlastitih prijava, widgeti i do 100 najnovijih vlastitih prijava; opcionalni `?widgetId=...` filtrira prijave |
-| `GET` | `/api/owner/widgets` | Vlastiti widgeti |
-| `POST` | `/api/owner/widgets` | Kreiranje widgeta i njegovih postavki; ključ generiše server |
-| `GET` | `/api/owner/widgets/:id` | Pregled vlastitog widgeta i postavki |
-| `PUT` / `PATCH` | `/api/owner/widgets/:id` | Izmjena naziva i/ili postavki widgeta |
-| `DELETE` | `/api/owner/widgets/:id` | Brisanje widgeta i njegovih prijava |
-| `GET` | `/api/owner/widgets/:id/submissions` | Do 100 najnovijih vlastitih prijava; podržava `?limit=1..100` |
-| `GET` | `/api/owner/widgets/:id/stats` | Broj prijava vlastitog widgeta |
+| `GET` | `/api/owner/dashboard` | Widget count, total submissions belonging to the user, widgets, and up to 100 latest submissions; optional `?widgetId=...` filters submissions |
+| `GET` | `/api/owner/widgets` | List the user's widgets |
+| `POST` | `/api/owner/widgets` | Create a widget and its settings; the server generates its key |
+| `GET` | `/api/owner/widgets/:id` | View the user's widget and its settings |
+| `PUT` / `PATCH` | `/api/owner/widgets/:id` | Update a widget's name and/or settings |
+| `DELETE` | `/api/owner/widgets/:id` | Delete a widget and its submissions |
+| `GET` | `/api/owner/widgets/:id/submissions` | Get up to 100 latest submissions belonging to the user; supports `?limit=1..100` |
+| `GET` | `/api/owner/widgets/:id/stats` | Get the submission count for the user's widget |
 
-Drugi korisnik za tuđi ili nepostojeći widget dobija isti odgovor `404`.
-Prijave se ne mogu čitati preko javnog ključa. Stari
-`GET /api/widgets/:publicKey/stats` endpoint je zadržan, ali sada traži prijavu
-i vraća podatke samo vlasniku.
+Another user receives the same `404` response for a widget they do not own as
+for a nonexistent widget. Submissions cannot be read using a public key. The
+legacy `GET /api/widgets/:publicKey/stats` endpoint remains available, but now
+requires sign-in and returns data only to the owner.
 
-Odgovori vlasničkog dashboarda uključuju lokaciju prijave u polju
-`geolocation` (država, regija, grad, koordinate, provider i status), te zbirne
-brojeve pozadinskih poslova svih tipova za widgete trenutnog korisnika.
+Owner dashboard responses include each submission's location in the
+`geolocation` field (country, region, city, coordinates, provider, and status),
+as well as aggregate counts for all background-job types associated with the
+current user's widgets.
 
-Javni demo obrazac ostaje dostupan:
+The public demo form remains available:
 
-- `GET /api/widgets/:publicKey` vraća javnu konfiguraciju obrasca.
-- `POST /api/widgets/:publicKey/submissions` prima validiranu prijavu bez
-  prijave vlasnika; to je namjerno jer obrazac popunjavaju javni posjetioci.
-- Honeypot polje `website`, Zod validacija i JSON limit od 10 KB štite javni
-  endpoint za prijave.
+- `GET /api/widgets/:publicKey` returns the form's public configuration.
+- `POST /api/widgets/:publicKey/submissions` accepts a validated submission
+  without requiring the widget owner to sign in; this is intentional because
+  public visitors fill out the form.
+- The `website` honeypot field, Zod validation, and a 10 KB JSON body limit
+  protect the public submission endpoint.
 
-Prijava poslata kroz javni obrazac pripada vlasniku ciljnog widgeta. Javna ruta
-ne omogućava pregled, izmjenu ni brisanje pohranjenih prijava.
+A submission sent through a public form belongs to the owner of the target
+widget. The public route does not allow stored submissions to be viewed,
+updated, or deleted.
 
-## Dashboard vlasnika
+## Owner dashboard
 
-Otvorite `http://localhost:3000/dashboard.html` i registrujte se ili prijavite.
-Dashboard prikazuje broj vlastitih widgeta, ukupan broj prijava svih widgeta,
-broj prijava za trenutno odabrani widget i broj redova prikazanih u tabeli.
-Tabela prikazuje do 100 najnovijih prijava uz filter po widgetu, uključujući
-državu/grad kada su dostupni ili status obrade lokacije. Kartice pozadinskih
-poslova prikazuju sve tipove poslova, ne samo geolokaciju, u stanjima pending,
-processing, completed i failed. Dashboard prikazuje i javni ključ, datum
-kreiranja i kod za ugradnju svakog vlastitog widgeta. Dugme **Create Widget** otvara editor s
-internim nazivom, naslovom i opisom forme, tekstom dugmeta, akcentnom bojom,
-izborom polja i porukom uspjeha; pregled se ažurira dok se postavke mijenjaju.
-Kreiranje i uređivanje šalju validirane podatke na vlasničke API rute i trajno
-ih čuvaju u SQLite-u. Lista nudi detalje/uređivanje, brisanje uz potvrdu,
-dugme **Embed / pregled** koje otvara odabrani widget i njegov kopirljivi kod,
-zaseban **Pregled** u novoj kartici i brzo kopiranje embed koda. Vlasništvo se provjerava iz sesije
-na serveru; drugi korisnik za widget dobija `404`. Brojevi poslova se računaju
-samo za prijave widgeta trenutno prijavljenog korisnika. Stariji klijenti i
-dalje mogu kreirati widget slanjem samo `{ "name": "Moj obrazac" }`; server
-primjenjuje kompatibilne podrazumijevane postavke.
+Open `http://localhost:3000/dashboard.html` and register or sign in. The
+dashboard displays the number of the user's widgets, the total number of
+submissions across all their widgets, the submission count for the currently
+selected widget, and the number of rows shown in the table. The table shows up
+to the 100 latest submissions and can be filtered by widget. It includes the
+country/city when available or the location-processing status. Background-job
+cards show all job types—not only geolocation—with `pending`, `processing`,
+`completed`, and `failed` states. The dashboard also displays each owned
+widget's public key, creation date, and embed code.
 
-Javni ključ služi za prikaz obrasca i slanje prijava, ne za pregled vlasničkih
-podataka. Demo obrazac ostaje na `/` i koristi postojeći `demo-widget`.
-Njegove prijave pripadaju sistemskom vlasniku bez lozinke i ne prikazuju se
-dashboardima korisnika.
+The **Create Widget** button opens an editor for the internal name, form title
+and description, button text, accent color, selected fields, and success
+message; the preview updates as settings change. Create and update operations
+send validated data to owner-only API routes and persist it in SQLite. The
+widget list provides details/editing, deletion with confirmation, an
+**Embed / Preview** button that opens the selected widget and its copyable
+code, a separate **Preview** in a new tab, and a quick way to copy the embed
+code. Ownership is checked on the server using the session; another user
+receives `404` for the widget. Job counts include only submissions for the
+currently signed-in user's widgets. Older clients can still create a widget by
+sending only `{ "name": "My form" }`; the server applies compatible defaults.
 
-Ručna provjera: pokrenite `npm start`, otvorite `/dashboard.html`, registrujte
-korisnika s lozinkom od najmanje 12 znakova, napravite widget, kopirajte
-ugradni kod i provjerite da widget prikazuje obrazac. Za probnu prijavu
-korisničkog widgeta ugradite njegov kod na stranicu ili pošaljite
-`POST /api/widgets/<publicKey>/submissions`, pa osvježite dashboard. Odjavite
-se i potvrdite da su vlasnički podaci dostupni tek nakon prijave.
+The public key is used to display the form and submit leads, not to view owner
+data. The demo form remains on `/` and uses the existing `demo-widget`. Its
+submissions belong to the passwordless system owner and are not shown in user
+dashboards.
+
+Manual check: run `npm start`, open `/dashboard.html`, register with a password
+of at least 12 characters, create a widget, copy its embed code, and check that
+the widget displays a form. To submit a test lead to your widget, embed its
+code on a page or send a `POST /api/widgets/<publicKey>/submissions` request,
+then refresh the dashboard. Sign out and confirm that owner data is available
+only after signing in.
 
 ## Embeddable widget
 
-Dashboard prikazuje tačan, samostalan script tag za svaki vaš widget:
+The dashboard displays the exact, standalone script tag for each of your
+widgets:
 
 ```html
-<script src="https://widgets.example.com/widget/v1.js" data-widget-key="JAVNI_KLJUC_WIDGETA"></script>
+<script src="https://widgets.example.com/widget/v1.js" data-widget-key="WIDGET_PUBLIC_KEY"></script>
 ```
 
-Lokalni primjer:
+Local example:
 
 ```html
 <script src="http://localhost:3000/widget/v1.js" data-widget-key="demo-widget"></script>
 ```
 
-Za stvarno objavljivanje zamijenite lokalni URL javnim **HTTPS** URL-om
-servera i postavite pravi javni ključ. `data-widget-key` je jedinstveni javni ključ konkretnog sačuvanog widgeta
-(ne ID demo widgeta). Skripta dohvaća samo javne postavke s
-`GET /api/widgets/:publicKey` — naslov, opis, tekst dugmeta, boju, polja i
-poruku uspjeha — i šalje prijave na
-`POST /api/widgets/:publicKey/submissions`. Konfiguracija sadrži samo naziv,
-javni ključ i javne postavke; ona nikad ne izlaže vlasnika, prijave ili tajne.
-Obrazac koristi samo podržana tekstualna polja (`name`, `email`, `message`)
-koja se generišu DOM API-jem, bez izvršavanja HTML-a iz konfiguracije. Embed
-stilovi su izolovani u Shadow DOM-u. Polja koja nisu odabrana ne prikazuju se;
-njihove vrijednosti se pohranjuju kao prazne vrijednosti radi kompatibilnosti
-postojećeg modela prijave.
+For a live deployment, replace the local URL with the server's public
+**HTTPS** URL and use the correct public key. `data-widget-key` is the unique
+public key of the specific saved widget (not the demo widget's ID). The script
+fetches only public settings using `GET /api/widgets/:publicKey`—title,
+description, button text, color, fields, and success message—and sends
+submissions to `POST /api/widgets/:publicKey/submissions`. The configuration
+contains only the name, public key, and public settings; it never exposes the
+owner, submissions, or secrets. The form uses only supported text fields
+(`name`, `email`, `message`), generated with the DOM API; it does not execute
+HTML from the configuration. Embed styles are isolated in Shadow DOM.
+Unselected fields are not displayed; their values are stored as empty values
+to remain compatible with the existing submission model.
 
-Konfiguracija ima kratak cache od 30 sekundi i `must-revalidate`.
-Versioned datoteka `/widget/v1.js` ima
-`Cache-Control: public, max-age=31536000, immutable`. Kad se promijeni javno
-ponašanje skripte, objavite novu putanju verzije umjesto mijenjanja sadržaja
-postojeće verzije.
-Raniji `/widget.js` ostaje dostupan za postojeće dvodijelne embedove; za nove
-integracije koristite versioned v1 script tag.
+The configuration has a short 30-second cache and `must-revalidate`.
+The versioned `/widget/v1.js` file has
+`Cache-Control: public, max-age=31536000, immutable`. When the script's public
+behavior changes, publish a new versioned path instead of changing the
+contents of an existing version.
+The earlier `/widget.js` remains available for existing two-part embeds; use
+the versioned v1 script tag for new integrations.
 
-CORS je omogućen samo za javne konfiguracijske i prijava endpoint-e, ne za
-autentifikovane API rute. U `.env` navedite tačne origin vrijednosti (scheme +
-host + port, bez putanje), odvojene zarezima:
+CORS is enabled only for public configuration and submission endpoints, not
+for authenticated API routes. In `.env`, specify exact origins (scheme + host
++ port, without a path), separated by commas:
 
 ```env
 WIDGET_ALLOWED_ORIGINS=https://www.example.com,https://shop.example.com
 ```
 
-Lokalni `.env.example` sadrži `http://localhost:5500` i
-`http://127.0.0.1:5500`. Dodajte produkcijske domene eksplicitno i restartujte
-server nakon izmjene; wildcard `*` nije podržan. CORS preflight dopušta samo
-`GET`, `POST` i `Content-Type` na javnim rutama.
+The local `.env.example` includes `http://localhost:5500` and
+`http://127.0.0.1:5500`. Add production domains explicitly and restart the
+server after changing them; wildcard `*` is not supported. CORS preflight
+allows only `GET`, `POST`, and `Content-Type` on public routes.
 
-### Testiranje na drugom originu
+### Testing on a different origin
 
-1. Sačuvajte bazu i pokrenite aplikaciju na portu 3000: `npm start`.
-2. Provjerite da `.env` sadrži
-   `WIDGET_ALLOWED_ORIGINS=http://localhost:5500`. Ako testna stranica koristi
-   `127.0.0.1`, dodajte i taj origin; zatim restartujte aplikaciju.
-3. Otvorite mapu `public/` u VS Code i pokrenite VS Code Live Server na portu
-   5500. Otvorite `http://localhost:5500/embed-demo.html`; ne koristite `file://`.
-4. Stranica koristi script tag za `demo-widget`. Pošaljite probnu prijavu i
-   provjerite uspješnu poruku. Demo prijava ostaje pod sistemskim vlasnikom.
-5. Za vlastiti widget prijavite se na
-   `http://localhost:3000/dashboard.html`, kreirajte widget i kopirajte njegov
-   script tag u `embed-demo.html`, zamjenjujući demo tag. Pošaljite prijavu i
-   provjerite da se pojavljuje samo u dashboardu vlasnika tog widgeta.
+1. Back up the database and start the application on port 3000 with
+   `npm start`.
+2. Check that `.env` contains
+   `WIDGET_ALLOWED_ORIGINS=http://localhost:5500`. If the test page uses
+   `127.0.0.1`, add that origin too, then restart the application.
+3. Open the `public/` folder in VS Code and start VS Code Live Server on port
+   5500. Visit `http://localhost:5500/embed-demo.html`; do not use `file://`.
+4. The page uses a script tag for `demo-widget`. Submit a test lead and check
+   for the success message. The demo submission remains assigned to the system
+   owner.
+5. For your own widget, sign in at
+   `http://localhost:3000/dashboard.html`, create a widget, and copy its
+   script tag into `embed-demo.html`, replacing the demo tag. Submit a lead and
+   check that it appears only in that widget owner's dashboard.
 
-## Konfiguracija
+## Configuration
 
-| Varijabla | Podrazumijevano | Namjena |
+| Variable | Default | Purpose |
 | --- | --- | --- |
 | `PORT` | `3000` | HTTP port |
-| `DATABASE_PATH` | `widget-platform.db` u korijenu projekta | Putanja do SQLite baze |
-| `NODE_ENV` | — | Postaviti na `production` radi `Secure` kolačića |
-| `WIDGET_ALLOWED_ORIGINS` | prazno (CORS bez cross-origin dozvole) | Tačna allowlista origin-a za javne widget API rute |
-| `GEOLOCATION_TIMEOUT_MS` | `1200` | Maksimalno čekanje svakog geolokacijskog providera u milisekundama |
-| `BACKGROUND_JOB_POLL_INTERVAL_MS` | `1000` | Worker interval provjere reda |
-| `BACKGROUND_JOB_MAX_ATTEMPTS` | `5` | Maksimalan broj izvršavanja posla |
-| `BACKGROUND_JOB_RETRY_BASE_MS` | `1000` | Početno eksponencijalno čekanje |
-| `BACKGROUND_JOB_RETRY_MAX_MS` | `3600000` | Gornja granica čekanja |
-| `BACKGROUND_JOB_LEASE_MS` | `30000` | Lease trajanje za oporavak napuštenih poslova |
-| `SUBMISSION_WEBHOOK_URL` | prazno (isključeno) | HTTPS endpoint za događaj nove prijave; HTTP je dopušten samo za localhost |
-| `SUBMISSION_WEBHOOK_SECRET` | prazno | Obavezan uz webhook URL; HMAC-SHA256 ključ od najmanje 32 bajta |
-| `SUBMISSION_WEBHOOK_TIMEOUT_MS` | `5000` | Timeout za webhook HTTP poziv |
+| `DATABASE_PATH` | `widget-platform.db` in the project root | Path to the SQLite database |
+| `NODE_ENV` | — | Set to `production` to enable `Secure` cookies |
+| `WIDGET_ALLOWED_ORIGINS` | empty (no cross-origin CORS access) | Exact allowlist of origins for public widget API routes |
+| `GEOLOCATION_TIMEOUT_MS` | `1200` | Maximum time to wait for each geolocation provider, in milliseconds |
+| `BACKGROUND_JOB_POLL_INTERVAL_MS` | `1000` | Worker queue polling interval |
+| `BACKGROUND_JOB_MAX_ATTEMPTS` | `5` | Maximum number of job attempts |
+| `BACKGROUND_JOB_RETRY_BASE_MS` | `1000` | Initial exponential backoff delay |
+| `BACKGROUND_JOB_RETRY_MAX_MS` | `3600000` | Maximum backoff delay |
+| `BACKGROUND_JOB_LEASE_MS` | `30000` | Lease duration for recovering abandoned jobs |
+| `SUBMISSION_WEBHOOK_URL` | empty (disabled) | HTTPS endpoint for new-submission events; HTTP is allowed only for localhost |
+| `SUBMISSION_WEBHOOK_SECRET` | empty | Required with the webhook URL; an HMAC-SHA256 key of at least 32 bytes |
+| `SUBMISSION_WEBHOOK_TIMEOUT_MS` | `5000` | Webhook HTTP request timeout |
 
-Nije potreban JWT ili hardkodirani session secret: sesijski tokeni se generišu
-kriptografski sigurnim generatorom pri prijavi.
+Neither JWT nor a hard-coded session secret is needed: session tokens are
+generated with a cryptographically secure random generator at sign-in.
 
-## Testovi i provjera
+## Tests and verification
 
 ```sh
 npm test
 ```
 
-Testovi koriste privremenu SQLite bazu i ne mijenjaju projektnu bazu.
-Pokrivaju `/health`, registraciju i prijavu, hashiranje lozinke, widget CRUD,
-pristup prijavama, izolaciju korisnika, dashboard API, versioned widget script,
-javnu konfiguraciju, CORS/OPTIONS, validaciju, honeypot, rate limiting i
-geolokacijski fallback, background job retry i webhook side effect.
+Tests use a temporary SQLite database and do not modify the project database.
+They cover `/health`, registration and sign-in, password hashing, widget CRUD,
+submission access, user isolation, the dashboard API, the versioned widget
+script, public configuration, CORS/OPTIONS, validation, the honeypot, rate
+limiting, geolocation fallback, background-job retries, and the webhook side
+effect.
 
-## Validacija, spam zaštita i ograničenja zahtjeva
+## Validation, spam protection, and request limits
 
-Javni endpoint za prijave provjerava ime (2–100 znakova), email (najviše 254
-znaka) i poruku (najviše 2.000 znakova). Ime i email su obavezni; poruka može
-biti prazna radi kompatibilnosti s postojećim API ponašanjem. Nepoznata polja
-se odbijaju. Neispravan JSON i Zod validacija vraćaju strukturirani JSON s
-statusom `400`; zahtjev veći od 10 KB vraća `413`. Server greške ne uključuju
-stack trace ili detalje baze u odgovor.
+The public submission endpoint validates the name (2–100 characters), email
+(up to 254 characters), and message (up to 2,000 characters). Name and email
+are required; the message can be empty to preserve existing API behavior.
+Unknown fields are rejected. Invalid JSON and Zod validation errors return
+structured JSON with status `400`; requests larger than 10 KB return `413`.
+Server errors do not include stack traces or database details in the response.
 
-Popunjen skriveni `website` honeypot vraća neutralan uspješan odgovor, ali se
-prijava ne pohranjuje. Na javne pokušaje slanja primjenjuje se podesiv limit po
-IP adresi:
+A populated hidden `website` honeypot returns a neutral success response, but
+the submission is not stored. Public submission attempts are subject to a
+configurable per-IP limit:
 
-| Varijabla | Podrazumijevano | Namjena |
+| Variable | Default | Purpose |
 | --- | --- | --- |
-| `WIDGET_SUBMISSION_RATE_WINDOW_MS` | `900000` | Trajanje prozora limita u milisekundama |
-| `WIDGET_SUBMISSION_RATE_LIMIT` | `10` | Najviše pokušaja po IP adresi u prozoru |
+| `WIDGET_SUBMISSION_RATE_WINDOW_MS` | `900000` | Rate-limit window duration in milliseconds |
+| `WIDGET_SUBMISSION_RATE_LIMIT` | `10` | Maximum attempts per IP address during the window |
 
-Prekoračenje limita javnih prijava vraća `429` i JSON kod
-`RATE_LIMIT_EXCEEDED`; opšti API limit također vraća JSON `429`. Limitator
-koristi memorijski store jednog Node.js procesa: brojači se resetuju pri
-restartu i nisu dijeljeni među više procesa/instanci. Za višestruke produkcijske
-instance potreban je zajednički rate-limit store. Aplikacija ne postavlja
-`trust proxy`; iza reverse proxy-ja Express može vidjeti proxy IP za sve
-klijente. Nemojte uključiti `trust proxy` naslijepo: ako je potrebno, podesite
-Express pouzdanim proxy adresama/CIDR-ovima prema stvarnoj topologiji prije
-izlaganja aplikacije.
+Exceeding the public submission limit returns `429` and the JSON code
+`RATE_LIMIT_EXCEEDED`; the general API limit also returns JSON `429`. The
+limiter uses the in-memory store of a single Node.js process: counters reset
+on restart and are not shared across multiple processes or instances. A shared
+rate-limit store is needed for multiple production instances. The application
+does not set `trust proxy`; behind a reverse proxy, Express may see the proxy
+IP for all clients. Do not enable `trust proxy` blindly: if needed, configure
+Express with trusted proxy addresses/CIDRs based on the actual topology before
+exposing the application.
 
-Testni limit je postavljen samo u zasebnom test procesu (`9` zahtjeva u testnom
-prozoru); testovi koriste privremenu SQLite bazu i ne mijenjaju runtime
-konfiguraciju ni projektnu bazu.
+The test limit is configured only in a separate test process (9 requests in
+the test window); tests use a temporary SQLite database and do not change the
+runtime configuration or project database.
 
-## Background jobs i geolokacija prijava
+## Background jobs and submission geolocation
 
-Nakon uspješnog upisa prijave, API dodaje `geolocate_submission` posao u
-SQLite i odmah odgovara; HTTP zahtjev ne čeka vanjske servise. Posao sadrži
-`submission_id` i IP unutar JSON payload-a, ali ne sadrži ime, email ili
-poruku. IP payload se uklanja kada posao završi ili iscrpi pokušaje. Ako
-SQLite ne može dodati posao, prijava ostaje sačuvana i korisnik i dalje dobija
-uspješan odgovor; aplikacija emituje generičko upozorenje bez privatnih
-vrijednosti, ali taj konkretni posao tada nema automatski retry.
+After a submission is successfully saved, the API adds a
+`geolocate_submission` job to SQLite and responds immediately; the HTTP
+request does not wait for external services. The job contains a
+`submission_id` and IP address in its JSON payload, but no name, email, or
+message. The IP payload is removed when the job completes or exhausts its
+attempts. If SQLite cannot enqueue the job, the submission remains saved and
+the user still receives a success response; the application emits a generic
+warning without private values, but that particular job will not be retried
+automatically.
 
-Jedan worker se pokreće uz glavni Node proces i provjerava red po
-`BACKGROUND_JOB_POLL_INTERVAL_MS`. Poslovi se atomski preuzimaju SQLite
-`UPDATE ... RETURNING` operacijom sa statusom `processing`, jedinstvenim
-processing tokenom i lease-om; paralelni workeri ne mogu preuzeti isti posao.
-Worker heartbeat obnavlja lease tokom poziva providera. Pri restartu i tokom
-rada se vraćaju istekli processing poslovi u pending. Ako je istekao lease
-posla koji je već potrošio sve pokušaje, označava se kao failed i emituje se
-sigurno upozorenje.
+A worker starts with the main Node process and polls the queue according to
+`BACKGROUND_JOB_POLL_INTERVAL_MS`. Jobs are claimed atomically using a SQLite
+`UPDATE ... RETURNING` operation with `processing` status, a unique processing
+token, and a lease; concurrent workers cannot claim the same job. A worker
+heartbeat renews the lease while waiting for the provider. On restart and
+during operation, expired processing jobs are returned to `pending`. If a job
+lease expires after all attempts have been used, the job is marked `failed`
+and a safe warning is emitted.
 
-Greške providera `unavailable` se smatraju prolaznim i ulaze u retry. Javne
-adrese koje su preskočene (`skipped`) su konačan rezultat, jer retry ne bi
-promijenio činjenicu da se privatne/lokalne adrese ne šalju providerima.
-Retry koristi eksponencijalni raspored: `base * 2^(attempts - 1)`, do
-`BACKGROUND_JOB_RETRY_MAX_MS`; nakon najviše
-`BACKGROUND_JOB_MAX_ATTEMPTS` izvršavanja posao prelazi u failed. Posljednja
-greška sadrži samo fiksni kod, ne tekst iz provider odgovora.
+Provider errors with `unavailable` status are treated as transient and
+retried. Public addresses that are skipped (`skipped`) are final results,
+because retrying would not change the fact that private/local addresses are
+not sent to providers. Retries use exponential backoff:
+`base * 2^(attempts - 1)`, up to `BACKGROUND_JOB_RETRY_MAX_MS`; after at most
+`BACKGROUND_JOB_MAX_ATTEMPTS` attempts, the job becomes `failed`. The final
+error contains only a fixed code, not text from the provider response.
 
-### Webhook za nove prijave
+### Webhook for new submissions
 
-Opcionalno postavite `SUBMISSION_WEBHOOK_URL` da biste uključili stvarnu
-sporednu radnju za nove prijave. URL mora biti HTTPS; HTTP je dozvoljen samo za
-`localhost`, `127.0.0.1` ili `::1` u lokalnom razvoju. Endpointom upravlja
-vlasnik servera kroz environment, nikada posjetilac widgeta, pa se URL ne može
-koristiti za slanje proizvoljnih zahtjeva sa javnog API-ja. Tajne se ne stavljaju
-u kod ni u repozitorij. `SUBMISSION_WEBHOOK_SECRET` mora biti postavljen i imati
-najmanje 32 UTF-8 bajta kad je URL konfigurisan; FlyRank tada dodaje
-`X-FlyRank-Signature: sha256=<hex>` koji je
-HMAC-SHA256 nad tačnim JSON tijelom. Primaoc mora provjeriti potpis u
-konstantnom vremenu i koristiti `Idempotency-Key` za deduplikaciju.
-Generišite vlastiti ključ lokalno i unesite ga u `.env` (ne u repozitorij):
+Optionally set `SUBMISSION_WEBHOOK_URL` to enable a real side effect for new
+submissions. The URL must use HTTPS; HTTP is allowed only for `localhost`,
+`127.0.0.1`, or `::1` during local development. The server owner controls the
+endpoint through the environment, never the widget visitor, so the public API
+cannot be used to send arbitrary requests. Secrets are not placed in code or
+the repository. When a URL is configured, `SUBMISSION_WEBHOOK_SECRET` must be
+set and contain at least 32 UTF-8 bytes; FlyRank then adds
+`X-FlyRank-Signature: sha256=<hex>`, an HMAC-SHA256 signature of the exact JSON
+body. The receiver must verify the signature in constant time and use
+`Idempotency-Key` for deduplication. Generate your own key locally and put it
+in `.env` (not in the repository):
 
 ```sh
 node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"
 ```
 
-Poslije upisa prijave u SQLite, aplikacija samo ubacuje
-`submission_webhook` posao u isti trajni red i vraća HTTP `201` bez čekanja na
-receiver. Posao u redu sadrži samo vezu na prijavu, ne ime, email ili poruku;
-worker ih učitava pri isporuci. Primaoc dobija `submission.created` s
-identifikatorom i vremenom prijave, widget ID-em/nazivom te imenom, emailom i
-porukom prijave. Zato endpoint treba biti pouzdan i ovlašten za prijem ovih
-podataka.
+After saving the submission to SQLite, the application only enqueues a
+`submission_webhook` job in the same persistent queue and returns HTTP `201`
+without waiting for the receiver. The queued job contains only a reference to
+the submission—not its name, email, or message; the worker loads those fields
+when delivering. The receiver gets `submission.created` with the submission
+identifier and timestamp, widget ID/name, and the submission's name, email,
+and message. Therefore, the endpoint must be trusted and authorized to receive
+this data.
 
-Ne-2xx odgovor, mrežna greška ili timeout prolazi kroz isti ograničeni
-eksponencijalni retry. Konačni neuspjeh označava posao `failed`, briše payload
-i bilježi samo fiksni `WEBHOOK_DELIVERY_FAILED` kod uz upozorenje koje ne sadrži
-lead podatke, URL, potpis ili response body. Enqueue greška također ne
-poništava već sačuvanu prijavu; vraća se uspješan odgovor i ispisuje se samo
-generičko upozorenje, ali taj pojedinačni webhook tada nije automatski
-isporučiv. Red ima jedinstveni partial index po prijavi za webhook tip, a svaki
-pokušaj koristi stabilni idempotency key `flyrank-submission-<id>`. Ovo
-sprečava dupli lokalni posao i omogućava primaocu da deduplicira ponovljenu
-isporuku; tačno-jednom isporuka ne može se garantovati ako receiver ignoriše
-idempotency key.
+A non-2xx response, network error, or timeout goes through the same bounded
+exponential retry process. A final failure marks the job `failed`, clears the
+payload, and records only the fixed `WEBHOOK_DELIVERY_FAILED` code along with
+a warning that contains no lead data, URL, signature, or response body. An
+enqueue error also does not undo the saved submission; a success response is
+returned and only a generic warning is logged, but that individual webhook
+cannot then be delivered automatically. The queue has a unique partial index
+per submission for the webhook job type, and each attempt uses the stable
+idempotency key `flyrank-submission-<id>`. This prevents duplicate local jobs
+and lets the receiver deduplicate retries; exactly-once delivery cannot be
+guaranteed if the receiver ignores the idempotency key.
 
-Kada webhook URL nije konfigurisan, webhook funkcionalnost je isključena i
-posao se ne kreira; aplikacija ne tvrdi da je poruka poslana. `.env.example`
-navodi sve opcionalne postavke. Za lokalni test može se koristiti kontrolisani
-HTTP receiver vezan samo na loopback; automatizovani testovi koriste isključivo
-mockirani `fetch` i ne kontaktiraju internet.
+When no webhook URL is configured, webhook functionality is disabled and no
+job is created; the application does not claim that a message was sent.
+`.env.example` lists all optional settings. For a local test, use a controlled
+HTTP receiver bound only to loopback; automated tests use a mocked `fetch`
+and do not contact the internet.
 
-SQLite red je namijenjen lokalnom/persistentnom disku koji podržava SQLite
-lockove; nemojte dijeliti WAL bazu preko nepouzdanog mrežnog fajl sistema.
-Više workera na istoj podržanoj SQLite bazi koristi atomski claim i lease, ali
-produkcijski throughput ostaje ograničen SQLite pisanjem i jednim claimom po
-worker instanci.
+The SQLite queue is intended for a local/persistent disk that supports SQLite
+locks; do not share a WAL database over an unreliable network filesystem.
+Multiple workers using the same supported SQLite database use atomic claims
+and leases, but production throughput remains limited by SQLite writes and
+one claim per worker instance.
 
-Primarni provider je
-[ipwho.is](https://ipwhois.io/documentation); ako zahtjev istekne, provider
-vrati HTTP/JSON grešku ili neupotrebljiv rezultat, koristi se rezervni
-[FreeIPAPI](https://freeipapi.com/docs/api-reference/api-introduction).
-Svaki poziv ima vlastiti timeout (`GEOLOCATION_TIMEOUT_MS`, zadano 1200 ms).
-Neuspjeh oba providera zakazuje retry, a prijava ostaje sačuvana. Nakon
-konačnog neuspjeha geolokacijski status ostaje bez lokacije (`not_processed`),
-a posao se označava failed. Adrese koje nisu javno rutabilne dobijaju status
-`skipped` bez poziva javnih servisa. Stare prijave dobijaju
-`not_processed`, jer za njih IP nije sačuvan i lokacija se ne može
-rekonstruisati.
+The primary provider is
+[ipwho.is](https://ipwhois.io/documentation); if the request times out, the
+provider returns an HTTP/JSON error, or the result is unusable, the fallback
+[FreeIPAPI](https://freeipapi.com/docs/api-reference/api-introduction) is
+used. Each request has its own timeout (`GEOLOCATION_TIMEOUT_MS`, 1200 ms by
+default). If both providers fail, the job is retried and the submission
+remains saved. After a final failure, the geolocation status remains without
+a location (`not_processed`) and the job is marked `failed`. Addresses that
+are not publicly routable receive `skipped` status without calling public
+services. Older submissions receive `not_processed`, because their IP
+addresses were not stored and their location cannot be reconstructed.
 
-Provider A dokumentuje besplatni plan bez registracije/API ključa od 1.000
-zahtjeva dnevno i komercijalnu upotrebu
-([cjenovnik](https://ipwhois.io/pricing)); uptime nije garantovan. Provider B
-navodi besplatnu komercijalnu i nekomercijalnu upotrebu uz ograničenje 60
-zahtjeva u minuti ([FreeIPAPI](https://freeipapi.com/)). Limiti, dostupnost i
-uslovi mogu se promijeniti; provider može odbiti zahtjeve nakon prekoračenja
-kvote. Lokacijski podaci su približni, nisu dokaz fizičke lokacije, a ovaj
-servis ne garantuje dostupnost providera.
+Provider A documents a free plan without registration/API keys, with 1,000
+requests per day and commercial use
+([pricing](https://ipwhois.io/pricing)); uptime is not guaranteed. Provider B
+states that free commercial and non-commercial use is available with a limit
+of 60 requests per minute ([FreeIPAPI](https://freeipapi.com/)). Limits,
+availability, and terms may change; a provider may reject requests after a
+quota is exceeded. Location data is approximate, not proof of physical
+location, and this service does not guarantee provider availability.
 
-Geolokacija se izvršava na serveru: providerima se šalje samo IP adresa, nikad
-ime, email ili poruka iz prijave. IP se čuva privremeno samo u payload-u SQLite
-reda dok je posao na čekanju, u obradi ili se ponavlja; briše se po završetku ili
-konačnom neuspjehu. IP se ne ispisuje u aplikacijske logove. Geolokacijski
-API-ji mogu bilježiti zahtjeve prema vlastitoj politici privatnosti; prije
-produkcijske upotrebe obavijestite posjetioce i utvrdite odgovarajući pravni
-osnov i rok čuvanja. Zaštitni filter preskače loopback, privatne, link-local,
-multicast i poznate rezervisane IPv4/IPv6 opsege.
+Geolocation runs on the server: only the IP address is sent to providers,
+never the submission's name, email, or message. The IP is stored temporarily
+only in the SQLite queue payload while the job is pending, processing, or
+being retried; it is deleted when the job completes or reaches final failure.
+The IP is not written to application logs. Geolocation APIs may log requests
+according to their own privacy policies; before production use, inform
+visitors and establish an appropriate legal basis and retention period. A
+safety filter skips loopback, private, link-local, multicast, and known
+reserved IPv4/IPv6 ranges.
 
-Klijentski IP se uzima iz `req.ip` dok je Express `trust proxy` isključen;
-`X-Forwarded-For` se ne čita direktno. Aplikacija ne geolocira IP u browseru i
-ne izmišlja IP kada zahtjev dolazi preko lokalnog ili privatnog proxy-ja. Ako
-deployment koristi reverse proxy, ograničite direktan pristup aplikaciji i
-ručno podesite Express `trust proxy` isključivo na poznatu adresu/CIDR tog
-proxy-ja; nikad ga ne postavljajte na `true` ili `0.0.0.0/0` bez pouzdane
-topologije.
+The client IP is taken from `req.ip` while Express `trust proxy` is disabled;
+`X-Forwarded-For` is not read directly. The application does not geolocate IPs
+in the browser and does not invent an IP when a request comes through a local
+or private proxy. If the deployment uses a reverse proxy, restrict direct
+access to the application and manually configure Express `trust proxy` only
+for that proxy's known address/CIDR; never set it to `true` or `0.0.0.0/0`
+without a trusted topology.
